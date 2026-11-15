@@ -4,7 +4,9 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循 [Semantic Versioning](https://semver.org/)。
 
-## [Unreleased] [[compare]](https://github.com/ceynri/micloud-cli/compare/v0.4.0...HEAD)
+## [Unreleased] [[compare]](https://github.com/ceynri/micloud-cli/compare/v0.5.0...HEAD)
+
+## [0.5.0] - 2026-11-15 [[compare]](https://github.com/ceynri/micloud-cli/compare/v0.4.0...v0.5.0)
 
 mi-note-cli 更名为 micloud（npm 包 `micloud-cli`），并加入小米云录音。升级说明见 [MIGRATION.md](./MIGRATION.md)。
 
