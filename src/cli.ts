@@ -143,7 +143,7 @@ program
   .option("-c, --concurrency <n>", "并发下载数（1-8，默认 3）")
   .option("-f, --force", "忽略拉取记录，重新拉取所有匹配的录音")
   .option("--dry-run", "只预览将拉取的录音，不下载")
-  .option("--delete-cloud", "拉取并校验成功后，把云端录音移到回收站（含之前已拉取、本地文件仍完好的）")
+  .option("--delete-cloud", "拉取并校验成功后，把云端录音移到回收站（未加 --limit 时也包括之前已拉取、本地文件仍完好的）")
   .option("--allow-moved", "配合 --delete-cloud：之前已拉取的录音即使本地文件已转移走也删除云端")
   .option("-y, --yes", "跳过 --delete-cloud 的确认")
   .addHelpText(
@@ -157,7 +157,8 @@ program
   同一拉取目录同时只能运行一个 pull / delete --pulled。
 
 清理云端（--delete-cloud，只移到回收站）:
-  本次拉取并校验成功的录音，以及之前已拉取、拉取目录里的文件仍完好的录音，会被移到回收站。
+  本次拉取并校验成功的录音，以及之前已拉取、拉取目录里的文件仍完好的录音，会被移到回收站；
+  带 --limit 时只清理本次拉取的录音。每条删除前都会再核对一次本地文件。
   之前已拉取但文件已被你转移走的录音默认不删（以免云端和本地都没有）；确认已妥善保存时加 --allow-moved。
   云端内容变化、缺少 SHA-1、或曾被本工具删除后又恢复的录音一律不删，列在 data.deleteSkipped。
 
@@ -269,7 +270,8 @@ const config = program
 config
   .command("show", { isDefault: true })
   .description("查看生效配置与拉取状态")
-  .action(() => configShowCommand());
+  .option("-o, --output <dir>", "查看指定拉取目录的状态（缺省同 pull）")
+  .action((opts) => configShowCommand(opts));
 
 config
   .command("set <key> <value>")

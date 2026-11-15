@@ -2,7 +2,7 @@ import { getClient, resolveTransferSettings, showProgress, buildFilter, DEVICE_S
 import { resolveOutputDir } from "../config.js";
 import { downloadToStream, urlExpiresAt } from "../download.js";
 import { downloadRecordings, listCloud, pullRecordings, resolveIds } from "../pull.js";
-import { success, logInfo, fail, isJsonMode, confirmDestructive, canPrompt, EXIT_PARTIAL_FAILURE } from "../output.js";
+import { success, logInfo, fail, isJsonMode, confirmDestructive, canPrompt, finishBatch } from "../output.js";
 import { formatBytes, formatDuration, formatTime, parsePositiveInt } from "../utils.js";
 
 interface PullCommandOptions extends FilterOptions {
@@ -49,7 +49,9 @@ export async function pullCommand(opts: PullCommandOptions): Promise<void> {
       showProgress: showProgress(),
     });
 
-    success(result, () => {
+    const failures = [...result.failed, ...result.deleteFailed];
+    const succeeded = result.pulled.length + result.deletedFromCloud.length;
+    finishBatch(result, { succeeded, failed: failures, warnings: result.warnings.length }, () => {
       if (result.cancelled) {
         logInfo("已取消");
         return;
@@ -82,9 +84,6 @@ export async function pullCommand(opts: PullCommandOptions): Promise<void> {
       const problem = result.failed.length || result.deleteFailed.length || result.warnings.length;
       logInfo(`\n${problem ? "⚠️" : "🎉"} 完成：${parts.join("，")}`);
     });
-    if (result.failed.length > 0 || result.deleteFailed.length > 0 || result.warnings.length > 0) {
-      process.exitCode = EXIT_PARTIAL_FAILURE;
-    }
   } catch (err) {
     fail(err);
   }
@@ -114,10 +113,9 @@ export async function downloadCommand(ids: string[], opts: DownloadCommandOption
       quiet: isJsonMode(),
       showProgress: showProgress(),
     });
-    success(result, () => {
+    finishBatch(result, { succeeded: result.downloaded.length, failed: result.failed }, () => {
       logInfo(`\n完成：下载 ${result.downloaded.length} 条（${formatBytes(result.downloadedBytes)}）${result.failed.length ? `，失败 ${result.failed.length} 条` : ""}`);
     });
-    if (result.failed.length > 0) process.exitCode = result.downloaded.length > 0 ? EXIT_PARTIAL_FAILURE : 1;
   } catch (err) {
     fail(err);
   }
@@ -149,7 +147,7 @@ export async function urlCommand(ids: string[], _opts: UrlCommandOptions = {}): 
       const expiresAt = urlExpiresAt(url);
       items.push({ id: r.id, title: r.title, url, ...(expiresAt ? { expiresAt } : {}) });
     }
-    success({ items, failed: failures }, () => {
+    finishBatch({ items, failed: failures }, { succeeded: items.length, failed: failures }, () => {
       for (const item of items) {
         if (items.length > 1) logInfo(`# ${item.title}`);
         process.stdout.write(item.url + "\n");
@@ -160,7 +158,6 @@ export async function urlCommand(ids: string[], _opts: UrlCommandOptions = {}): 
       }
       for (const f of failures) logInfo(`❌ ${f.id}：${f.error}`);
     });
-    if (failures.length > 0) process.exitCode = items.length > 0 ? EXIT_PARTIAL_FAILURE : 1;
   } catch (err) {
     fail(err);
   }
@@ -186,11 +183,12 @@ export async function playCommand(id: string): Promise<void> {
 
 async function openExternal(url: string): Promise<void> {
   const { spawn } = await import("node:child_process");
+  // Windows 不经过 cmd：直链里的 & 会被 cmd 当成命令分隔符
   const [command, args] =
     process.platform === "darwin"
       ? ["open", [url]]
       : process.platform === "win32"
-        ? ["cmd", ["/c", "start", "", url]]
+        ? ["rundll32", ["url.dll,FileProtocolHandler", url]]
         : ["xdg-open", [url]];
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args as string[], { stdio: "ignore", detached: true });

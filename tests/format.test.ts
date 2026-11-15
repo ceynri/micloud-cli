@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseTimeInput } from "../src/dates.ts";
-import { recordingRelPath, renderFileName, withIdSuffix, pathKey } from "../src/template.ts";
+import { recordingRelPath, renderFileName, pathKey } from "../src/template.ts";
 import { parseRecording } from "../src/recording.ts";
 import {
   formatBytes,
@@ -96,9 +96,10 @@ test("renderFileName：变量里的斜杠不会变成目录，.. 段被丢弃，
   assert.equal(renderFileName("${unknown}", recorder), "${unknown}");
 });
 
-test("withIdSuffix / pathKey", () => {
-  assert.equal(withIdSuffix("a/b/录音.mp3", "42"), "a/b/录音_42.mp3");
-  assert.equal(withIdSuffix("录音", "42"), "录音_42");
+test("recordingRelPath：冲突后缀加在扩展名之前；没有扩展名时标题里的点号不被当成扩展名 / pathKey", () => {
+  assert.equal(recordingRelPath("${typeName}/${title}", wechat, "_42"), "应用录音/微信录音 小王_20260711131118_42.aac");
+  const dotted = { ...recorder, title: "v1.2 会议", extension: "" };
+  assert.equal(recordingRelPath("${title}", dotted, "_42"), "v1.2 会议_42");
   assert.equal(pathKey("A/录音.MP3"), pathKey("a/录音.mp3"));
 });
 

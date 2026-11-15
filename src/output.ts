@@ -51,6 +51,34 @@ export function fail(error: unknown): never {
  */
 export const EXIT_PARTIAL_FAILURE = 2;
 
+/**
+ * 输出批量操作的结果，并按「成功 / 部分失败 / 全部失败」设置退出码：
+ * - 没有失败：ok:true，退出码 0；
+ * - 部分失败（或有警告）：ok:true，退出码 2；
+ * - 有失败且一条都没成功：ok:false，退出码 1，error 取首条失败原因，data 照常附带明细。
+ * 只设置 process.exitCode，不立即退出，调用方的 finally（如释放目录锁）照常执行。
+ */
+export function finishBatch(
+  data: unknown,
+  outcome: { succeeded: number; failed: { error: string }[]; warnings?: number },
+  humanRender: () => void,
+): void {
+  const failedCount = outcome.failed.length;
+  if (failedCount > 0 && outcome.succeeded === 0) {
+    const first = outcome.failed[0].error;
+    const error = failedCount === 1 ? first : `全部 ${failedCount} 条失败，首条原因：${first}`;
+    if (jsonMode) {
+      process.stdout.write(JSON.stringify({ ok: false, error, data }, null, 2) + "\n");
+    } else {
+      humanRender();
+    }
+    process.exitCode = 1;
+    return;
+  }
+  success(data, humanRender);
+  if (failedCount > 0 || (outcome.warnings ?? 0) > 0) process.exitCode = EXIT_PARTIAL_FAILURE;
+}
+
 /** 是否可以向用户提问（非 JSON 模式且 stdin 是终端） */
 export function canPrompt(): boolean {
   return !jsonMode && !!process.stdin.isTTY;

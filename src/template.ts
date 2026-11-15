@@ -67,19 +67,10 @@ export function renderFileName(template: string, r: Recording): string {
   return `${t.YYYY}-${t.MM}-${t.DD}_${t.HH}-${t.mm}-${t.ss}_${r.id}`;
 }
 
-/** 录音落盘的相对路径（含扩展名） */
-export function recordingRelPath(template: string, r: Recording): string {
-  const base = renderFileName(template, r);
+/** 录音落盘的相对路径（含扩展名）；suffix 加在文件名主体之后、扩展名之前（同名冲突时用 `_<id>`） */
+export function recordingRelPath(template: string, r: Recording, suffix = ""): string {
+  const base = renderFileName(template, r) + suffix;
   return r.extension ? `${base}.${r.extension}` : base;
-}
-
-/** 同名冲突时的备选路径：文件名主体加 `_<id>` 后缀 */
-export function withIdSuffix(relPath: string, id: string): string {
-  const slash = relPath.lastIndexOf("/");
-  const dir = slash >= 0 ? relPath.slice(0, slash + 1) : "";
-  const name = relPath.slice(slash + 1);
-  const dot = name.lastIndexOf(".");
-  return dot > 0 ? `${dir}${name.slice(0, dot)}_${id}${name.slice(dot)}` : `${dir}${name}_${id}`;
 }
 
 /** 路径比较键：大小写与 Unicode 规范化不敏感（macOS / Windows 默认文件系统如此） */

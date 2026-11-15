@@ -2,7 +2,7 @@ import { stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { isFatalError } from "./client.js";
 import { getStatePath, loadState, lockOutputDir, saveState } from "./config.js";
-import { fetchRecording, matchesLocalFile, sha1File, type DownloadSource } from "./download.js";
+import { fetchRecording, matchesLocalFile, type DownloadSource } from "./download.js";
 import { TransferProgress } from "./progress.js";
 import {
   matchesFilter,
@@ -10,7 +10,7 @@ import {
   sortByRecordedAt,
   type RecordingFilter,
 } from "./recording.js";
-import { pathKey, recordingRelPath, withIdSuffix } from "./template.js";
+import { pathKey, recordingRelPath } from "./template.js";
 import { logInfo } from "./output.js";
 import { fileExists, formatBytes } from "./utils.js";
 import type { PullState, PulledRecord, RawRecording, Recording } from "./types.js";
@@ -124,17 +124,15 @@ export async function planTargets(
   for (const recording of sortByRecordedAt(recordings, "asc")) {
     const base = recordingRelPath(template, recording);
     let placed = false;
-    for (const relPath of [base, withIdSuffix(base, recording.id)]) {
+    for (const relPath of [base, recordingRelPath(template, recording, `_${recording.id}`)]) {
       const key = pathKey(relPath);
       if (claimed.has(key)) continue;
       const absPath = join(outputDir, relPath);
       const st = await stat(absPath).catch(() => null);
       const existing =
         !!st &&
-        st.isFile() &&
-        st.size === recording.size &&
         !!recording.sha1 &&
-        (await sha1File(absPath)) === recording.sha1;
+        (await matchesLocalFile(absPath, { size: recording.size, sha1: recording.sha1 }));
       if (!st || existing) {
         claimed.add(key);
         targets.push({ recording, relPath, absPath, existing });
@@ -246,7 +244,8 @@ async function runPull(client: TransferClient, opts: PullOptions): Promise<PullR
     downloadedBytes: 0,
   };
 
-  // 本次拉取的录音在校验通过后删除云端；--force 重新拉取到的「删除后又被恢复」的录音仍视为保留
+  // 本次拉取的录音在校验通过后删除云端；--force 重新拉取到的「删除后又被恢复」的录音仍视为保留。
+  // 带 --limit 时只清理本次拉取的录音，不顺带清理之前拉取过的（那是 delete --pulled 的事）
   const deleteAfterPull = new Set<string>();
   const previouslyDeletable: Recording[] = [];
   if (opts.deleteCloud) {
@@ -256,9 +255,11 @@ async function runPull(client: TransferClient, opts: PullOptions): Promise<PullR
       else if (!r.sha1) result.deleteSkipped.push(skippedItem(r, "unverifiable"));
       else deleteAfterPull.add(r.id);
     }
-    const selection = await selectPulled(previously, state, opts.outputDir, { allowMoved: opts.allowMoved });
-    previouslyDeletable.push(...selection.targets);
-    result.deleteSkipped.push(...selection.skipped);
+    if (opts.limit === undefined) {
+      const selection = await selectPulled(previously, state, opts.outputDir, { allowMoved: opts.allowMoved });
+      previouslyDeletable.push(...selection.targets);
+      result.deleteSkipped.push(...selection.skipped);
+    }
   }
 
   if (opts.dryRun) {
@@ -297,6 +298,13 @@ async function runPull(client: TransferClient, opts: PullOptions): Promise<PullR
       result.deleteFailed.push({ id: r.id, title: r.title, error: fatal });
       return;
     }
+    const record = state.recordings[r.id];
+    // 删除前再核对一次：规划之后（下载期间）本地文件可能已被转移或改动
+    const skip = record ? await checkCloudDeletable(r, record, opts.outputDir, !!opts.allowMoved) : "local-missing";
+    if (skip) {
+      result.deleteSkipped.push(skippedItem(r, skip));
+      return;
+    }
     try {
       await client.deleteRecording(r.id);
     } catch (err) {
@@ -307,9 +315,7 @@ async function runPull(client: TransferClient, opts: PullOptions): Promise<PullR
     }
     result.deletedFromCloud.push(brief(r));
     progress.log(`🗑️  已将云端录音移到回收站：${r.title}`);
-    const record = state.recordings[r.id];
-    if (!record) return;
-    record.cloudDeletedAt = Date.now();
+    record!.cloudDeletedAt = Date.now();
     try {
       await serial.run(() => saveState(opts.outputDir, state));
     } catch (err) {
@@ -390,12 +396,21 @@ export interface DownloadResult {
   downloadedBytes: number;
 }
 
-/** 按 id 下载指定录音到 outputDir（不读写拉取状态）；本地已有相同内容的文件时直接跳过 */
+/** 按 id 下载指定录音到 outputDir（不读写拉取状态）；本地已有相同内容的文件时直接跳过。运行期间独占 outputDir */
 export async function downloadRecordings(
   client: TransferClient,
   ids: string[],
   opts: DownloadOptions,
 ): Promise<DownloadResult> {
+  const release = await lockOutputDir(opts.outputDir);
+  try {
+    return await runDownload(client, ids, opts);
+  } finally {
+    await release();
+  }
+}
+
+async function runDownload(client: TransferClient, ids: string[], opts: DownloadOptions): Promise<DownloadResult> {
   const recordings = await listCloud(client, true);
   const { found, failures } = await resolveIds(client, recordings, ids);
   const { targets, failures: planFailures } = await planTargets(found, opts.outputDir, opts.template);

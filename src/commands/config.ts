@@ -1,14 +1,14 @@
-import { resolveOutputDir, loadState, loadUserConfig, saveUserConfig, getUserConfigPath, getStatePath, getDefaultOutputDir, CONFIG_KEYS, DEFAULT_CONCURRENCY, parseConfigValue, type ConfigKey } from "../config.js";
+import { resolveOutputDir, loadState, loadUserConfig, saveUserConfig, getUserConfigPath, getStatePath, CONFIG_KEYS, DEFAULT_CONCURRENCY, parseConfigValue, type ConfigKey } from "../config.js";
 import { DEFAULT_FILE_NAME_TEMPLATE } from "../template.js";
 import { success, logInfo, fail } from "../output.js";
 import { formatTime } from "../utils.js";
 import type { UserConfig } from "../types.js";
 
-/** config：查看生效配置 */
-export async function configShowCommand(): Promise<void> {
+/** config：查看生效配置与拉取状态 */
+export async function configShowCommand(opts: { output?: string } = {}): Promise<void> {
   try {
     const cfg = await loadUserConfig();
-    const outputDir = await resolveOutputDir();
+    const outputDir = await resolveOutputDir(opts.output);
     const state = await loadState(outputDir);
     const pulled = Object.values(state.recordings);
     const lastPulledAt = pulled.reduce((max, r) => Math.max(max, r.pulledAt), 0);
@@ -29,7 +29,7 @@ export async function configShowCommand(): Promise<void> {
     };
     success(data, () => {
       logInfo(`配置文件：${data.configFile}${Object.keys(cfg).length ? "" : "（未创建，使用默认值）"}`);
-      logInfo(`拉取目录：${outputDir}${cfg.output ? "" : `（默认 ${getDefaultOutputDir()}）`}`);
+      logInfo(`拉取目录：${outputDir}${opts.output || cfg.output ? "" : "（默认）"}`);
       logInfo(`文件名模板：${data.effective.fileNameTemplate}`);
       logInfo(`并发下载数：${data.effective.concurrency}`);
       logInfo(

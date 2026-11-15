@@ -1,6 +1,6 @@
 import { createHash, type Hash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { link, mkdtemp, rename, rm, stat, unlink } from "node:fs/promises";
+import { link, mkdtemp, open, rename, rm, stat, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable, Transform, type Writable } from "node:stream";
@@ -56,9 +56,9 @@ export interface DownloadSource {
 }
 
 /**
- * 把直链内容下载到 dest：先写 `<dest>.part`，大小与 SHA-1 都校验通过才放到正式位置，
- * 因此正式文件一旦出现就是完整的。已有 `.part` 时用 Range 断点续传；
- * 服务端忽略或答非所问（206 起点不符）时丢弃 `.part` 从头下载。
+ * 把直链内容下载到 dest：先写 `<dest>.part`，写完后**按磁盘上的文件**校验大小与 SHA-1，通过才放到正式位置，
+ * 因此正式文件一旦出现就是完整的（即使有其他进程同时写同一个 `.part`，校验也会失败而不会放行）。
+ * 已有 `.part` 时用 Range 断点续传，大小已齐的直接校验；服务端忽略或答非所问（206 起点不符）时丢弃 `.part` 从头下载。
  * 放置时绝不覆盖：dest 已有相同内容视为完成，内容不同则报 TargetExistsError。
  * @param onProgress 回调该文件已就绪的字节数（含续传前已有的部分）
  */
@@ -73,6 +73,12 @@ export async function downloadToFile(
 
   let offset = 0;
   const partStat = await stat(part).catch(() => null);
+  if (partStat?.isFile() && partStat.size === expected.size && (await sameContent(part, expected))) {
+    // 上次已下载完整、但没来得及放到正式位置
+    onProgress?.(expected.size);
+    await placeWithoutOverwrite(part, dest, expected);
+    return;
+  }
   if (partStat?.isFile() && partStat.size > 0 && partStat.size < expected.size) {
     offset = partStat.size;
   } else if (partStat) {
@@ -99,14 +105,11 @@ export async function downloadToFile(
     }
     if (!resp.body) throw new Error("下载响应没有内容");
 
-    const hash = createHash("sha1");
-    if (offset > 0) await hashFile(part, hash);
     let received = offset;
     onProgress?.(received);
-
     await pipeline(
       toNodeStream(resp.body),
-      meter(hash, (n) => {
+      meter((n) => {
         watchdog.kick();
         received += n;
         onProgress?.(received);
@@ -114,7 +117,7 @@ export async function downloadToFile(
       createWriteStream(part, { flags: offset > 0 ? "a" : "w" }),
     );
 
-    verify(received, hash.digest("hex"), expected);
+    await verifyFile(part, expected);
     await placeWithoutOverwrite(part, dest, expected);
   } catch (err) {
     if (err instanceof IntegrityError) await rm(part, { force: true });
@@ -126,8 +129,9 @@ export async function downloadToFile(
 
 /**
  * 校验通过的 `.part` 放到正式位置，不覆盖任何已有文件：
- * 用硬链接实现「目标不存在才创建」的原子操作；目标已存在且内容相同视为完成；
- * 文件系统不支持硬链接时退回「检查后改名」。
+ * 用硬链接实现「目标不存在才创建」的原子操作；目标已存在且内容相同视为完成。
+ * 文件系统不支持硬链接（如 exFAT、部分网络盘）时，先独占创建占位文件再改名覆盖这个占位文件，
+ * 同样不会覆盖别人的文件。
  */
 async function placeWithoutOverwrite(part: string, dest: string, expected: ExpectedContent): Promise<void> {
   try {
@@ -136,23 +140,30 @@ async function placeWithoutOverwrite(part: string, dest: string, expected: Expec
     return;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "EEXIST") {
-      if (await sameContent(dest, expected)) {
-        await unlink(part);
-        return;
-      }
-      throw new TargetExistsError(dest);
-    }
+    if (code === "EEXIST") return await settleExisting(part, dest, expected);
     if (!["EPERM", "ENOTSUP", "EOPNOTSUPP", "EXDEV", "ENOSYS", "EMLINK"].includes(code ?? "")) throw err;
   }
-  if (await stat(dest).catch(() => null)) {
-    if (await sameContent(dest, expected)) {
-      await unlink(part);
-      return;
-    }
-    throw new TargetExistsError(dest);
+  try {
+    await (await open(dest, "wx")).close();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return await settleExisting(part, dest, expected);
+    throw err;
   }
-  await rename(part, dest);
+  try {
+    await rename(part, dest);
+  } catch (err) {
+    await rm(dest, { force: true });
+    throw err;
+  }
+}
+
+/** 目标位置已有文件：内容相同视为完成，否则报错且不动它 */
+async function settleExisting(part: string, dest: string, expected: ExpectedContent): Promise<void> {
+  if (await sameContent(dest, expected)) {
+    await unlink(part);
+    return;
+  }
+  throw new TargetExistsError(dest);
 }
 
 async function sameContent(path: string, expected: ExpectedContent): Promise<boolean> {
@@ -261,12 +272,16 @@ async function isEndToEndEncrypted(source: DownloadSource, id: string): Promise<
   }
 }
 
-function verify(received: number, sha1: string, expected: ExpectedContent): void {
-  if (received !== expected.size) {
-    throw new IntegrityError(`下载内容大小不符：期望 ${expected.size} 字节，实际 ${received} 字节`);
+/** 按磁盘上的文件校验大小与 SHA-1 */
+async function verifyFile(path: string, expected: ExpectedContent): Promise<void> {
+  const { size } = await stat(path);
+  if (size !== expected.size) {
+    throw new IntegrityError(`下载内容大小不符：期望 ${expected.size} 字节，实际 ${size} 字节`);
   }
-  if (expected.sha1 && sha1 !== expected.sha1.toLowerCase()) {
-    throw new IntegrityError(`下载内容 SHA-1 校验失败：期望 ${expected.sha1}，实际 ${sha1}`);
+  if (!expected.sha1) return;
+  const actual = await sha1File(path);
+  if (actual !== expected.sha1.toLowerCase()) {
+    throw new IntegrityError(`下载内容 SHA-1 校验失败：期望 ${expected.sha1}，实际 ${actual}`);
   }
 }
 
@@ -279,10 +294,9 @@ async function hashFile(path: string, hash: Hash): Promise<void> {
   for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
 }
 
-function meter(hash: Hash, onChunk: (bytes: number) => void): Transform {
+function meter(onChunk: (bytes: number) => void): Transform {
   return new Transform({
     transform(chunk: Buffer, _encoding, callback) {
-      hash.update(chunk);
       onChunk(chunk.length);
       callback(null, chunk);
     },

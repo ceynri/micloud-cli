@@ -3,16 +3,18 @@ import { printRecordingTable, summarize } from "./list.js";
 import { isFatalError } from "../client.js";
 import { getStatePath, lockOutputDir, resolveOutputDir, saveState } from "../config.js";
 import {
+  checkCloudDeletable,
   errorMessage,
   listCloud,
   loadExistingState,
   resolveIds,
   selectPulled,
+  skippedItem,
   type FailedItem,
   type SkippedItem,
 } from "../pull.js";
 import { matchesFilter, sortByRecordedAt } from "../recording.js";
-import { success, logInfo, fail, isJsonMode, confirmDestructive, EXIT_PARTIAL_FAILURE } from "../output.js";
+import { success, logInfo, fail, isJsonMode, confirmDestructive, finishBatch } from "../output.js";
 import { formatBytes, formatDuration, randomDelay } from "../utils.js";
 import type { PullState, Recording } from "../types.js";
 
@@ -90,7 +92,8 @@ export async function deleteCommand(ids: string[], opts: DeleteOptions): Promise
     };
 
     if (opts.dryRun || targets.length === 0) {
-      success({ dryRun: !!opts.dryRun, deleted: [], wouldDelete: targets, skipped, failed, ...plan }, () => {
+      const data = { dryRun: !!opts.dryRun, deleted: [], wouldDelete: targets, skipped, failed, ...plan };
+      finishBatch(data, { succeeded: targets.length, failed }, () => {
         if (targets.length === 0) logInfo("（没有要删除的录音）");
         else {
           logInfo(`🔍 预览：将把以下 ${targets.length} 条录音移到回收站（${formatDuration(plan.duration)}，${formatBytes(plan.size)}）`);
@@ -99,7 +102,6 @@ export async function deleteCommand(ids: string[], opts: DeleteOptions): Promise
         printSkipped();
         for (const f of failed) logInfo(`⚠️  ${f.title || f.id}：${f.error}`);
       });
-      if (failed.length > 0) process.exitCode = EXIT_PARTIAL_FAILURE;
       return;
     }
 
@@ -122,6 +124,15 @@ export async function deleteCommand(ids: string[], opts: DeleteOptions): Promise
       if (fatal) {
         failed.push({ id: r.id, title: r.title, error: fatal });
         continue;
+      }
+      // --pulled：删除前再核对一次（确认后、逐条删除期间，本地文件可能已被转移或改动）
+      const record = state?.recordings[r.id];
+      if (record && outputDir) {
+        const code = await checkCloudDeletable(r, record, outputDir, !!opts.allowMoved);
+        if (code) {
+          skipped.push(skippedItem(r, code));
+          continue;
+        }
       }
       try {
         await client.deleteRecording(r.id);
@@ -155,11 +166,11 @@ export async function deleteCommand(ids: string[], opts: DeleteOptions): Promise
       }
     }
 
-    success({ deleted, skipped, failed, warnings, count: deleted.length, ...summarize(deleted) }, () => {
+    const data = { deleted, skipped, failed, warnings, count: deleted.length, ...summarize(deleted) };
+    finishBatch(data, { succeeded: deleted.length, failed, warnings: warnings.length }, () => {
       for (const w of warnings) logInfo(`⚠️  ${w}`);
       logInfo(`\n已将 ${deleted.length} 条录音移到回收站${failed.length ? `，${failed.length} 条失败` : ""}（可用 trash restore 恢复）`);
     });
-    if (failed.length > 0 || warnings.length > 0) process.exitCode = deleted.length > 0 ? EXIT_PARTIAL_FAILURE : 1;
   } catch (err) {
     fail(err);
   } finally {

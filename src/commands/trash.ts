@@ -3,7 +3,7 @@ import { summarize } from "./list.js";
 import { CODE_SPACE_FULL, MiApiError, isFatalError } from "../client.js";
 import { errorMessage, type FailedItem } from "../pull.js";
 import { TRASH_RETENTION_DAYS, parseTrashedRecording, shortTypeName } from "../recording.js";
-import { success, logInfo, fail, isJsonMode, confirmDestructive, EXIT_PARTIAL_FAILURE } from "../output.js";
+import { success, logInfo, fail, isJsonMode, confirmDestructive, finishBatch } from "../output.js";
 import {
   formatBytes,
   formatDuration,
@@ -82,11 +82,10 @@ async function trashAction(action: "restore" | "purge", ids: string[], opts: Tra
     const verb = action === "restore" ? "恢复" : "永久删除";
 
     if (targets.length === 0) {
-      success({ [action === "restore" ? "restored" : "purged"]: [], failed }, () => {
+      finishBatch({ [action === "restore" ? "restored" : "purged"]: [], failed, count: 0 }, { succeeded: 0, failed }, () => {
         logInfo(opts.all ? "（回收站为空）" : "（没有可操作的录音）");
         for (const f of failed) logInfo(`❌ ${f.id}：${f.error}`);
       });
-      if (failed.length > 0) process.exitCode = 1;
       return;
     }
 
@@ -125,10 +124,9 @@ async function trashAction(action: "restore" | "purge", ids: string[], opts: Tra
     }
 
     const key = action === "restore" ? "restored" : "purged";
-    success({ [key]: done, failed, count: done.length }, () => {
+    finishBatch({ [key]: done, failed, count: done.length }, { succeeded: done.length, failed }, () => {
       logInfo(`\n已${verb} ${done.length} 条录音${failed.length ? `，${failed.length} 条失败` : ""}`);
     });
-    if (failed.length > 0) process.exitCode = done.length > 0 ? EXIT_PARTIAL_FAILURE : 1;
   } catch (err) {
     fail(err);
   }

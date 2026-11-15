@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { downloadToFile, downloadToStream, fetchRecording, IntegrityError, urlExpiresAt, E2EE_MESSAGE } from "../src/download.ts";
-import { pullRecordings, planTargets, selectPulled, type TransferClient } from "../src/pull.ts";
+import { downloadRecordings, pullRecordings, planTargets, selectPulled, type TransferClient } from "../src/pull.ts";
 import { lockOutputDir, loadState } from "../src/config.ts";
 import { selectTrashTargets } from "../src/commands/trash.ts";
 import { parseRecording, parseTrashedRecording } from "../src/recording.ts";
@@ -291,6 +291,10 @@ function pullOpts(outputDir: string, extra: Partial<Parameters<typeof pullRecord
   return { outputDir, template: "${title}", concurrency: 2, filter: {}, quiet: true, ...extra };
 }
 
+function downloadOpts(outputDir: string) {
+  return { outputDir, template: "${title}", concurrency: 2, quiet: true };
+}
+
 test("pull：首次全部拉取并记录状态；再次拉取全部跳过", async (t) => {
   const { cloud } = await setupCloud(t, [REC_A, REC_B]);
   const dir = await tempDir(t);
@@ -384,13 +388,27 @@ test("pull：同一拉取目录不能同时运行两个 pull；持锁进程已�
   const { cloud } = await setupCloud(t, [REC_A]);
   const dir = await tempDir(t);
   const release = await lockOutputDir(dir);
-  await assert.rejects(() => pullRecordings(cloud, pullOpts(dir)), /正被另一个 mi-recording-cli 进程使用/);
+  await assert.rejects(() => pullRecordings(cloud, pullOpts(dir)), /正被另一个进程使用/);
+  await assert.rejects(() => downloadRecordings(cloud, [REC_A.id], downloadOpts(dir)), /正被另一个进程使用/, "download 同样独占目录");
   await release();
 
   // 残留的锁（pid 已不存在）
   await writeFile(join(dir, ".mi-recording-cli.lock"), JSON.stringify({ pid: 2 ** 22 + 12345, host: hostname() }));
   const result = await pullRecordings(cloud, pullOpts(dir));
   assert.equal(result.pulled.length, 1);
+});
+
+test("lockOutputDir：内容不完整的锁文件刚创建时视为占用，超过一分钟视为残留并接管", async (t) => {
+  const dir = await tempDir(t);
+  const file = join(dir, ".mi-recording-cli.lock");
+  await writeFile(file, "");
+  await assert.rejects(() => lockOutputDir(dir), /正被另一个进程使用/);
+  const old = new Date(Date.now() - 120_000);
+  await utimes(file, old, old);
+  const release = await lockOutputDir(dir);
+  assert.equal(JSON.parse(await readFile(file, "utf-8")).pid, process.pid);
+  await release();
+  assert.deepEqual(await readdir(dir), []);
 });
 
 test("pull --delete-cloud：确认后删除新拉取的与之前已拉取的；拒绝确认则什么都不做", async (t) => {
@@ -487,6 +505,65 @@ test("pull --delete-cloud：下载失败的录音不删除云端", async (t) => 
   assert.equal(result.failed.length, 1);
   assert.equal(result.failed[0].id, "200");
   assert.equal((await loadState(dir)).recordings["200"], undefined);
+});
+
+test("pull --delete-cloud：删除前再核对本地文件，确认后被转移走的不删", async (t) => {
+  const { cloud } = await setupCloud(t, [REC_A, REC_B]);
+  const dir = await tempDir(t);
+  await pullRecordings(cloud, pullOpts(dir));
+  // 规划时两个文件都在；用户确认后、开始删除前，A 被转移走
+  const result = await pullRecordings(
+    cloud,
+    pullOpts(dir, {
+      deleteCloud: true,
+      confirmDelete: async () => {
+        await rm(join(dir, "2026年07月17日 00点10分.mp3"));
+        return true;
+      },
+    }),
+  );
+  assert.deepEqual(cloud.deleted, ["200"]);
+  assert.deepEqual(result.deleteSkipped.map((s) => [s.id, s.code]), [["100", "local-missing"]]);
+  assert.equal((await loadState(dir)).recordings["100"].cloudDeletedAt, undefined);
+});
+
+test("pull --delete-cloud --limit：只清理本次拉取的录音，不动之前拉取过的", async (t) => {
+  const { cloud } = await setupCloud(t, [REC_A, REC_B]);
+  const dir = await tempDir(t);
+  await pullRecordings(cloud, pullOpts(dir, { filter: { types: ["app"] } }));
+  let asked = 0;
+  const result = await pullRecordings(
+    cloud,
+    pullOpts(dir, {
+      limit: 1,
+      deleteCloud: true,
+      confirmDelete: async (count) => {
+        asked = count;
+        return true;
+      },
+    }),
+  );
+  assert.equal(asked, 1);
+  assert.deepEqual(result.pulled.map((p) => p.id), ["100"]);
+  assert.deepEqual(cloud.deleted, ["100"]);
+});
+
+test("downloadToFile：大小已齐的 .part 直接校验放置；被其他进程写坏的 .part 不会放行", async (t) => {
+  const srv = await startServer({ "/a": AUDIO });
+  t.after(srv.close);
+  const dir = await tempDir(t);
+  const dest = join(dir, "a.mp3");
+  await writeFile(`${dest}.part`, AUDIO);
+  await downloadToFile(`${srv.base}/a`, dest, { size: AUDIO.length, sha1: sha1(AUDIO) });
+  assert.deepEqual(await readFile(dest), AUDIO);
+  assert.equal(srv.hits.length, 0, "没有重新下载");
+
+  // 同样大小但内容不对的 .part：丢弃后从头下载
+  const dest2 = join(dir, "b.mp3");
+  await writeFile(`${dest2}.part`, Buffer.alloc(AUDIO.length));
+  await downloadToFile(`${srv.base}/a`, dest2, { size: AUDIO.length, sha1: sha1(AUDIO) });
+  assert.deepEqual(await readFile(dest2), AUDIO);
+  assert.deepEqual(srv.hits.map((h) => h.range), [undefined]);
 });
 
 test("pull：登录态失效后立即停止，剩余录音记为失败、不再请求", async (t) => {
