@@ -115,4 +115,4 @@ MICLOUD_INTEGRATION=1 pnpm test:integration   # 真实账号的集成测试（�
 
 ## License
 
-[AGPL-3.0](./LICENSE)。可以自由使用、修改和分发；分发修改后的版本，或基于它对外提供网络服务时，需以同一协议公开源码。0.4.0 及之前的版本仍为 MIT。
+[AGPL-3.0](./LICENSE)
