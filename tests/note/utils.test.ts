@@ -4,10 +4,10 @@ import {
   sanitizeFileName,
   formatDateTime,
   getCacheDir,
-  inferImageMimeType,
-} from "../src/utils.ts";
-import { extractCookieValue } from "../src/auth.ts";
-import { buildExtraInfoString } from "../src/note.ts";
+} from "../../src/core/utils.ts";
+import { inferImageMimeType } from "../../src/note/images.ts";
+import { extractCookieValue } from "../../src/core/auth.ts";
+import { buildExtraInfoString } from "../../src/note/extra-info.ts";
 
 test("sanitizeFileName: 替换非法字符", () => {
   assert.equal(sanitizeFileName('a/b\\c:d*e?f"g<h>i|j'), "a_b_c_d_e_f_g_h_i_j");
@@ -28,7 +28,7 @@ test("formatDateTime: 格式正确", () => {
 });
 
 test("getCacheDir: 含应用名", () => {
-  assert.ok(getCacheDir().includes("mi-note-cli"));
+  assert.ok(getCacheDir().includes("micloud"));
 });
 
 test("inferImageMimeType: 常见类型", () => {

@@ -9,8 +9,8 @@ import {
   parseTypes,
   shortTypeName,
   sortByRecordedAt,
-} from "../src/recording.ts";
-import type { RawRecording } from "../src/types.ts";
+} from "../../src/recording/recording.ts";
+import type { RawRecording } from "../../src/recording/types.ts";
 
 /** 本地时间 → 毫秒 */
 function local(y: number, mo: number, d: number, h = 0, mi = 0, s = 0): number {

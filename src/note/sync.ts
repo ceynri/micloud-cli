@@ -12,7 +12,7 @@ import {
   buildImageMap,
 } from "./converter.js";
 import { uploadLocalImages, withAttachments } from "./images.js";
-import { buildExtraInfoString } from "./note.js";
+import { buildExtraInfoString } from "./extra-info.js";
 import {
   randomDelay,
   ensureFileDir,
@@ -20,8 +20,8 @@ import {
   ensureDir,
   sanitizeFileName,
   getCacheDir,
-} from "./utils.js";
-import { logInfo } from "./output.js";
+} from "../core/utils.js";
+import { logInfo } from "../core/output.js";
 import {
   loadUserConfig,
   loadState,
@@ -43,7 +43,7 @@ import type { Scenario, SyncAction } from "./sync-diff.js";
 
 const SAVE_INTERVAL = 10;
 const TOOL_VERSION = (
-  createRequire(import.meta.url)("../package.json") as { version: string }
+  createRequire(import.meta.url)("../../package.json") as { version: string }
 ).version;
 
 /** export / sync 实际用到的客户端能力（便于测试注入假实现） */

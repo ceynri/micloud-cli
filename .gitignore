@@ -3,10 +3,10 @@ dist/
 *.log
 .DS_Store
 
-# 本地导出/同步产物
+# 本地配置与产物（含个人笔记、录音，绝不入库）
+.micloud/
+.mi-note-cli/
 output/
-.sync-state.json
-.mi-note-cli.json
 
 # 测试临时产物
 tmp-test-output/

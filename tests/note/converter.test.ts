@@ -9,13 +9,13 @@ import {
   deriveTitle,
   parseNoteEntry,
   extractSnippet,
-  truncateDisplay,
   renderFileNameTemplate,
   buildImageMap,
   findUnresolvedAttachments,
   assertAttachmentsResolvable,
-} from "../src/converter.ts";
-import type { RawNoteEntry, ParsedNote } from "../src/types.ts";
+} from "../../src/note/converter.ts";
+import { truncateDisplay } from "../../src/core/utils.ts";
+import type { RawNoteEntry, ParsedNote } from "../../src/note/types.ts";
 
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 

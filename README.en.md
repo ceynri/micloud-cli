@@ -1,236 +1,117 @@
 English | [简体中文](./README.md)
 
-# mi-note-cli
+# micloud
 
-A full-featured CLI for Xiaomi Cloud Notes (i.mi.com) — read, create, update, delete, move, and pin notes, manage folders, upload images, export, and **two-way sync**. **Designed for AI / scripting** (unified `--json` output, fail-fast in non-interactive mode).
+A command-line tool for Xiaomi Cloud (i.mi.com), built for AI agents and scripts. Log in once to work with:
 
-> Migrating from the old mi-note-export? See [MIGRATION.md](./MIGRATION.md) (Chinese only).
-
-> ⚠️ **Experimental**: This project is still iterating rapidly — even minor version (`x.Y.z`) bumps may contain breaking changes. If you need stability, lock your dependency to the minor version (e.g., `~0.1.0` instead of `^0.1.0`). If an update causes problems, check the latest [Releases](https://github.com/ceynri/mi-note-cli/releases) for changes; verified issues can be filed as a new [issue](https://github.com/ceynri/mi-note-cli/issues).
-
-## Features
-
-- **Auth**: interactive browser login with cookie caching
-- **Read**: list notes, view a note (as Markdown), keyword search, list folders
-- **Write**: create / update / delete / move / pin notes
-- **Folders**: create / rename / delete
-- **Images**: upload a local image, get an embeddable reference
-- **Export `export`**: one-way cloud → local Markdown (attachments, folder layout), never touches the cloud
-- **Sync `sync`**: bidirectional local↔cloud with 3-way diff and conflict modes
-- **AI-friendly**: global `--json`; never pops a browser in non-interactive contexts — fails fast instead
-
-## Install
-
-### As a CLI tool
+- **Notes**: read and write as Markdown; export, or sync two-way with a local folder
+- **Recordings**: incrementally pull recordings your phone syncs to the cloud, then clean up the cloud copies
 
 ```bash
-npm install -g mi-note-cli
+npm install -g micloud-cli
+micloud login                               # log in with your Xiaomi account in a browser; renewed automatically
+micloud note sync -o ./notes --mode two-way # two-way sync notes with a local folder
+micloud rec pull -o ./recordings            # pull new recordings to disk
 ```
 
-> Requires Node.js >= 18. Playwright is only used to open a browser at login time, preferring system Chrome.
+> Requires Node.js >= 18 and Chrome (opened for login). Without Chrome, run `npx playwright install chromium`.
 
-### As an AI Skill
-
-Install the bundled skill via [`npx skills`](https://github.com/agentc-app/skills) to give your AI agent knowledge of this tool:
+For AI agents:
 
 ```bash
-npx -y skills add ceynri/mi-note-cli --all
+npx -y skills add ceynri/micloud-cli --all
 ```
 
-Or choose which agents to install to:
+> ⚠️ Experimental: minor versions (`0.Y.z`) may contain breaking changes. Pin the minor version (e.g. `~0.5.0`) if you need stability.
 
-```bash
-npx skills add ceynri/mi-note-cli
-```
+## For AI agents and scripts
 
-## Quick Start
+- **Use `--json`**: success prints `{"ok":true,"data":...}`, failure prints `{"ok":false,"error":"..."}`. Logs and progress go to stderr.
+- **Exit codes**: `0` success; `2` partial failure (still `ok:true`, failed items listed in `data`); `1` failure.
+- **Never hangs**: in non-interactive mode (`--json` or no terminal) it never opens a browser. If the login has expired it fails right away; the user runs `micloud login` once in a terminal.
+- **Deletes need explicit confirmation**: in non-interactive mode, deleting requires `-y`, otherwise it errors. Preview with `--dry-run` first.
 
-```bash
-mi-note-cli login                       # 1. Log in (opens a browser)
-mi-note-cli list --limit 20             # 2. List notes
-mi-note-cli get <noteId>                # 3. View a note
-mi-note-cli create --title "Title" --content "# Body"   # 4. Create
-mi-note-cli sync -o ./notes --mode two-way              # 5. Two-way sync with a local dir
-```
-
-## Commands
+## Notes: `micloud note`
 
 | Command | Description |
 |---|---|
-| `login` / `logout` / `whoami` | Log in / clear session / show status |
-| `list [--folder <id>] [--limit <n>]` | List notes |
-| `get <id> [--raw]` | View a note (Markdown by default, `--raw` for XML) |
-| `search <keyword> [--limit <n>]` | Search titles and snippets |
-| `create [--title] [--folder] [--content/--file]` | Create a note (content can come from stdin) |
-| `update <id> [--title] [--folder] [--content/--file]` | Update a note |
-| `delete <id> [--purge] [-y]` | Delete (trash by default, `--purge` permanent) |
-| `move <id> <folderId>` | Move a note to a folder |
-| `pin <id>` / `unpin <id>` | Pin / unpin |
-| `folders` / `folder create\|rename\|delete` | Folder management |
-| `upload-image <path>` | Upload an image, returns `minote://image/{fileId}` |
-| `export [-o <dir>] [-f]` | One-way export to Markdown |
-| `sync [-o <dir>] [--mode M] [--dry-run] [-y]` | Bidirectional sync |
-| `sync init` / `sync status` | Set default mode / show config |
+| `list` / `get <id>` / `search <keyword>` | List, view (as Markdown; `--raw` for the original format), search |
+| `create` / `update <id>` | Write Markdown from `--content`, `--file`, or stdin |
+| `delete <id>` / `move <id> <folder>` / `pin` / `unpin` | Delete (to trash by default), move, pin |
+| `folders` / `folder create\|rename\|delete` | Manage folders |
+| `upload-image <path>` | Upload an image and get a reference to embed in a note |
+| `export -o <dir>` | One-way export to Markdown; never changes the cloud |
+| `sync -o <dir> --mode <mode>` | Two-way sync; `--dry-run` to preview |
 
-All commands support the global `--json` flag, producing `{ ok, data }` / `{ ok: false, error }`.
+Sync modes: `cloud-first` (download only), `local-first` (upload only), `two-way` (automatic both ways), `manual` (default, asks for each change). Real conflicts (both sides changed, or deleted on one side and edited on the other) are skipped and reported in non-interactive mode; data is never deleted on a guess. Cloud deletions only move notes to the trash.
 
-## Export vs Sync
+Supported Markdown: headings, lists, checkboxes, quotes, dividers, bold / italic / strikethrough, links, inline code, and images. Tables and code-block languages are not supported; try important notes on a small scale first.
 
-| | `export` | `sync --mode cloud-first` |
-|---|---|---|
-| Direction | Cloud → local only | Can be bidirectional (cloud-first = download only) |
-| State file | None (incremental cache lives in the global cache dir, safe to delete) | Creates `.mi-note-cli.state.json` to track baseline |
-| Deletes local files | No (local files persist even if deleted on cloud) | Yes (cloud is authoritative, removes local files for deleted notes) |
-| Full re-download | `--force` | Delete the output dir and re-run |
-| Use case | One-time backup / snapshot | Ongoing sync |
+## Recordings: `micloud rec`
 
-Other `sync` modes: `local-first` (upload only), `two-way` (auto bidirectional), `manual` (default, interactive per-item).
+`rec` is short for `recording`.
 
-### Sync modes (`--mode`)
-
-| Mode | Behavior |
+| Command | Description |
 |---|---|
-| `cloud-first` | Cloud wins: download only; conflicts resolved by cloud |
-| `local-first` | Local wins: upload only; conflicts resolved by local |
-| `two-way` | Auto bidirectional: one-sided changes sync automatically; only real conflicts pause |
-| `manual` (default) | Interactive: every divergence is listed and asked one by one |
+| `list` / `search` / `info <id>` / `stats` | List, search, details, statistics |
+| `pull -o <dir>` | Incremental pull: already-pulled recordings are skipped, even if you moved the files away |
+| `download <id...>` | Download by id; `--stdout` to pipe |
+| `url <id>` / `play <id>` | Temporary direct link (no login needed, about 4 hours), play in a player |
+| `delete` | Move to trash: by id, by filter, or `--pulled` (pulled and verified locally) |
+| `trash` / `trash restore` / `trash purge` | Trash: list, restore, delete permanently |
 
-Conflicts (both-changed / one-side-deleted-other-changed): `cloud-first`/`local-first` resolve automatically by their declared winner; `two-way`/`manual` ask interactively, or in non-interactive contexts skip and report — **never deleting data on their own**.
+Filters (for list / stats / pull / delete): `--type recorder,phonecall,fm,app`, `--since 7d`, `--until 2026-07-31`, `-q keyword`.
 
-Use `sync init` to set a default mode interactively; then `sync` can omit `--mode`. `sync --dry-run` previews without executing.
-
-Data-safety rules during sync:
-
-- **Same-named notes never overwrite each other**: when several notes map to the same file name in a folder, one keeps the name and the rest get an `_<noteId>` suffix (`export` always lets the earliest-created note keep the plain name).
-- **Existing files are adopted first**: the first `sync` over a directory that already has Markdown files (e.g. from `export`) treats a file at a note's target path as that note — identical content is recorded as in sync, differing content becomes a conflict; nothing is uploaded twice.
-- **Deletions go to the recycle bin**: deleting a local file moves the cloud note to the recycle bin (restorable on the web for 30 days); sync never purges.
-- **Attachments are never corrupted**: image references in local notes are restored to the original images on upload; references to local image files are uploaded automatically. An image inline with text, a missing file, or audio/video attachments make that item fail and get skipped instead of turning attachments into plain text.
-- **Local subdirectories map to cloud folders**: new files in a subdirectory are created in the cloud folder with the same name, which is created if missing; the file name becomes the cloud title.
-- **Stale plans are not applied**: if either side changes after the plan is built (e.g. while you answer a prompt), that item is skipped and you're asked to re-run sync.
-- When resolving a conflict interactively, press `d` to see the cloud vs. local diff.
-
-## Embedding Images
+Pull to disk, hand off to transcription, then clean up the cloud:
 
 ```bash
-mi-note-cli upload-image ./photo.png    # → ![图片](minote://image/xxxxxx)
-mi-note-cli create --title "With image" --content "See:
-
-![图片](minote://image/xxxxxx)"
+micloud rec pull -o ./recordings --json | jq -r '.data.pulled[].file'      # paths of newly pulled files
+micloud rec delete --pulled -o ./recordings --dry-run                       # preview the cleanup
+micloud rec delete --pulled -o ./recordings -y                              # move to trash
 ```
 
-The tool auto-converts `minote://image/{fileId}` into Xiaomi's image markup. You can also reference a local image file directly; it is uploaded automatically on write:
+- **Safe downloads**: each file is written to `.part` first and only kept once its size and SHA-1 match the cloud; interrupted runs resume; existing files with the same name are never overwritten.
+- **Safe cleanup**: `--pulled` only deletes recordings whose cloud copy is unchanged and whose local file is still intact. Add `--allow-moved` if you have moved the files elsewhere.
+- **Deletes reach your phone**: Xiaomi Cloud syncs deletions to signed-in devices, so the recording is deleted from the phone too. The trash keeps recordings for 30 to 180 days depending on membership.
 
-```bash
-mi-note-cli create --file ./notes/trip.md   # ![](./photo.jpg) inside it gets uploaded
-```
+File names default to the phone's recording names. Customize with `--template`, e.g. `'${YYYY}-${MM}-${DD}_${HH}${mm}[_${contact}]'`; see `micloud rec pull --help` for placeholders.
 
-Markdown printed by `get` / `sync` can be edited and passed straight back to `update`: its image references are restored to the note's existing images. Images must sit on their own line; relative paths resolve against the Markdown file's directory (or the working directory for `--content` / stdin).
+## Configuration
 
-## Data Directories
-
-- **Session cache** (macOS): `~/Library/Caches/mi-note-cli/` (`cookie` + `browser-data/`; may be cleared by the system/user as cache — just log in again).
-- **User config**: `.mi-note-cli/config.json` at the project root, holding user preferences (sync mode / default output dir / filename template). The CLI reads/writes inside the directory you run it from. Safe to commit so a team can share the same preferences.
-- **Default output**: when neither user config nor CLI `-o` provides one, it falls back to `.mi-note-cli/output/` so things work zero-config.
-- **Sync state**: `<output>/.mi-note-cli.state.json`, holding the sync baseline (per-note content hash, `filePath`, last-synced remote modify time). Travels with the output directory — moving the whole output dir keeps sync working. Not for version control: just add the output dir to `.gitignore` and the state file is ignored along with it.
-
-### Customizing sync behavior (optional)
-
-Add any of the following fields to `.mi-note-cli/config.json`:
+Project settings live in `.micloud/config.json` in the current directory, one section per service, all optional:
 
 ```json
 {
-  "syncMode": "cloud-first",
-  "output": "./mi-notes",
-  "fileNameTemplate": "${YYYY}-${MM}-${DD}_${HH}-${mm}-${ss}[_${title}]"
+  "note": { "output": "notes", "syncMode": "two-way", "fileNameTemplate": "${YYYY}-${MM}-${DD}[_${title}]" },
+  "recording": { "output": "recordings", "fileNameTemplate": "${title}", "concurrency": 3 }
 }
 ```
 
-- `syncMode`: default sync mode, used when `sync` runs without `--mode`
-- `output`: default sync/export directory, used when `sync` / `export` runs without `-o` (relative paths resolve against the project root)
-- `fileNameTemplate`: filename format for `sync` / `export` (the `.md` extension is appended automatically)
+- `-o` on the command line overrides `output`. Without either, `.micloud/note/` and `.micloud/recording/` are used.
+- Sync / pull state is kept inside the output folder (`.micloud-note.state.json`, `.micloud-recording.json`), so the folder can be moved as a whole.
+- The login lives in the system cache directory (`~/Library/Caches/micloud/` on macOS); delete it and run `login` again if needed.
+- The default output folders `.micloud/note/` and `.micloud/recording/` hold your notes and recordings; add them to `.gitignore` inside a git repository. `config.json` can be committed.
 
-With this template, exported filenames look like:
+## Limitations
 
-- Note with a title → `2026-06-06_14-03-00_reading-notes.md`
-- Note without a title → `2026-06-06_14-03-00.md`
+- Only mainland China accounts (i.mi.com).
+- With Advanced Data Protection (end-to-end encryption) enabled, recordings cannot be downloaded (you get a clear error); listing and deleting still work.
+- Special note types such as private notes and mind maps are exported on a best-effort basis and cannot be edited.
+- Recordings cannot be uploaded or renamed (the web app can't either).
 
-**Placeholders**
+## Upgrading from mi-note-cli
 
-| Placeholder | Meaning |
-|---|---|
-| `${YYYY}` / `${YY}` | 4-digit / 2-digit year |
-| `${MM}` `${DD}` | Month / day (zero-padded) |
-| `${HH}` `${mm}` `${ss}` | Hour / minute / second (24-hour, zero-padded) |
-| `${title}` | The note's real title. **Empty** when the user didn't set one |
-| `${subject}` | A non-empty subject: real title if set, otherwise the first content line or the creation timestamp |
-| `${id}` | Note ID |
-
-Time fields are based on the note's **creation time** in the local timezone.
-
-**Conditional segments `[...]`**
-
-A bracketed segment is rendered only when **all** of its `${var}` placeholders are non-empty; otherwise the whole segment (including its separators) disappears. The most common use is wrapping the optional title segment:
-
-```
-${YYYY}-${MM}-${DD}[_${title}]
-```
-
-- With title → `2026-06-06_reading-notes`
-- Without title → `2026-06-06`
-
-Use `\[` / `\]` to write literal brackets.
-
-**Default behavior**
-
-When `fileNameTemplate` is unset, the behavior is equivalent to `${subject}` — always a non-empty filename. Templates **do not support `/`** — folder hierarchy is always derived from the cloud-side folder; the template only produces the basename.
-
-## Known Limitations
-
-### Service capabilities
-
-- **Trash listing / restore**: no public API; deleted notes can only be restored within 30 days via the [i.mi.com](https://i.mi.com) web UI.
-- **Private notes / dedicated to-do type / mind maps**: no stable write API; best-effort on export, no editing.
-- **User tags**: Xiaomi Notes has no user-tag system (the `tag` field is a sync version).
-- **Cookie lifetime**: when the short-lived `serviceToken` expires, the CLI silently refreshes it using the persisted long-lived session — usually no need to `login` again; you only need to re-run `login` once the long-lived session itself expires.
-
-### Markdown coverage (experimental)
-
-> The project is in early stages with limited real-world usage, and the converter may have known or unknown gaps. Validate on a small subset first for important notes, and keep manual backups of critical content — feedback on incorrect conversions is very welcome.
-
-**Stably supported** (covered by both unit and integration round-trip tests): headings (H1–H3), ordered / unordered lists (including multi-level nesting and paragraph-broken numbering), checkboxes, blockquotes, horizontal rules, bold `**bold**` / italic `*italic*` / strikethrough `~~strike~~` / underline `<u>...</u>`, links, inline code, paragraphs, image attachments. Audio/video attachments are export-only; notes containing them cannot be written back after local edits.
-
-**Currently unsupported**: tables, footnotes, definition lists, fenced code-block language tags, Setext-style headings (`===` / `---`), inline HTML other than `<u>`. These will be silently dropped or kept as literal text during conversion.
-
-**Two-way sync caveat**: the 3-way diff compares in Markdown space — if the conversion isn't lossless, the diff treats the drift as "remote-side change" and may overwrite. If you rely heavily on syntax outside the whitelist above, or notice your local markdown style being rewritten after sync, prefer `manual` / `two-way` mode (which pauses on disagreement) over `cloud-first`.
-
----
-
-## Contributing & Feedback
-
-The project is in early stages — for any conversion oddities, missing features, new placeholder ideas — please [open an issue](https://github.com/ceynri/mi-note-cli/issues) or PR. The smaller the repro, the better.
-
----
-
-## Notes for AI Callers
-
-1. Always pass `--json` for parseable output.
-2. In non-interactive contexts (no TTY), an unauthenticated call fails immediately instead of hanging on browser login — have a human run `login` once first.
-3. For destructive actions pass `-y`; in non-interactive sync, real conflicts are skipped without touching data.
-4. When some items of `export` / `sync` fail, the output is still `ok: true` with the failures listed in `data.errors`, and the process exits with code 2. Only a total failure yields `ok: false` and exit code 1.
-
----
+Add `note` to your commands: `mi-note-cli sync` becomes `micloud note sync`. Your login, configuration, and sync folders carry over automatically, with no need to log in or sync from scratch. See [MIGRATION.md](./MIGRATION.md) (Chinese).
 
 ## Development
 
 ```bash
-git clone https://github.com/ceynri/mi-note-cli.git
-cd mi-note-cli
 pnpm install
-pnpm build              # compile
-pnpm dev                # watch mode
-pnpm test               # unit tests (no network)
-pnpm test:integration   # real-API integration tests (needs login; writes self-clean)
+pnpm typecheck && pnpm test        # type check and unit tests (no network)
+MICLOUD_INTEGRATION=1 pnpm test:integration   # integration tests against a real account (log in first)
 ```
+
+API notes: [docs/recording-api.md](./docs/recording-api.md). Issues and suggestions are welcome in [issues](https://github.com/ceynri/micloud-cli/issues).
 
 ## License
 

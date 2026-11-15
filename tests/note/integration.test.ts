@@ -4,31 +4,31 @@ import { mkdtemp, rm, writeFile, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { peekOrRefreshAuth, refreshAuth } from "../src/auth.ts";
-import { MiNoteClient } from "../src/client.ts";
-import { exportNotes } from "../src/sync.ts";
+import { peekOrRefreshAuth, refreshAuth } from "../../src/core/auth.ts";
+import { MiNoteClient } from "../../src/note/client.ts";
+import { exportNotes } from "../../src/note/sync.ts";
 import {
   markdownToXml,
   xmlToMarkdown,
   parseNoteEntry,
   extractSnippet,
-} from "../src/converter.ts";
-import { buildExtraInfoString } from "../src/note.ts";
-import type { WriteNoteEntry } from "../src/types.ts";
+} from "../../src/note/converter.ts";
+import { buildExtraInfoString } from "../../src/note/extra-info.ts";
+import type { WriteNoteEntry } from "../../src/note/types.ts";
 
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 
 /**
  * 真实 API 集成测试（需要有效登录态）。
  *
- * 运行：MI_NOTE_CLI_INTEGRATION=1 pnpm test:integration
+ * 运行：MICLOUD_INTEGRATION=1 pnpm test:integration
  *
- * 所有写操作均带 [mi-note-cli-test] 前缀，并在结束时永久删除（purge），
+ * 所有写操作均带 [micloud-test] 前缀，并在结束时永久删除（purge），
  * 不会污染用户的真实笔记。
  */
 
-const ENABLED = process.env.MI_NOTE_CLI_INTEGRATION === "1";
-const PREFIX = "[mi-note-cli-test]";
+const ENABLED = process.env.MICLOUD_INTEGRATION === "1";
+const PREFIX = "[micloud-test]";
 
 let client: MiNoteClient | null = null;
 let authError: string | null = null;
@@ -38,7 +38,7 @@ before(async () => {
   // 与 getClient 一致：现有登录态失效时先尝试静默续期，仍失败才要求 login
   const auth = await peekOrRefreshAuth();
   if (!auth) {
-    authError = "无有效登录态（cookie 已过期）。请先运行 mi-note-cli login";
+    authError = "无有效登录态（cookie 已过期）。请先运行 micloud login";
     return;
   }
   client = new MiNoteClient(auth, refreshAuth);
@@ -46,7 +46,7 @@ before(async () => {
 
 function skipIfUnavailable(t: { skip: (msg?: string) => void }): boolean {
   if (!ENABLED) {
-    t.skip("设置 MI_NOTE_CLI_INTEGRATION=1 以启用真实 API 集成测试");
+    t.skip("设置 MICLOUD_INTEGRATION=1 以启用真实 API 集成测试");
     return true;
   }
   if (!client) {
@@ -247,12 +247,12 @@ test("集成：sync 双向（云端创建→下行→改本地→上行→校验
   if (skipIfUnavailable(t)) return;
 
   // 隔离配置目录，避免污染真实公共配置
-  const cfgDir = await mkdtemp(join(tmpdir(), "mi-note-cli-cfg-"));
-  const outDir = await mkdtemp(join(tmpdir(), "mi-note-cli-sync-"));
-  const prevCfg = process.env.MI_NOTE_CLI_CONFIG_DIR;
-  process.env.MI_NOTE_CLI_CONFIG_DIR = cfgDir;
+  const cfgDir = await mkdtemp(join(tmpdir(), "micloud-cfg-"));
+  const outDir = await mkdtemp(join(tmpdir(), "micloud-sync-"));
+  const prevCfg = process.env.MICLOUD_CONFIG_DIR;
+  process.env.MICLOUD_CONFIG_DIR = cfgDir;
 
-  const { buildSyncPlan, executeSyncPlan } = await import("../src/sync.ts");
+  const { buildSyncPlan, executeSyncPlan } = await import("../../src/note/sync.ts");
 
   // 在云端创建一条测试笔记
   const xml = markdownToXml(`# ${PREFIX} sync原始\n\n初始正文`);
@@ -318,8 +318,8 @@ test("集成：sync 双向（云端创建→下行→改本地→上行→校验
     }
     await rm(outDir, { recursive: true, force: true });
     await rm(cfgDir, { recursive: true, force: true });
-    if (prevCfg === undefined) delete process.env.MI_NOTE_CLI_CONFIG_DIR;
-    else process.env.MI_NOTE_CLI_CONFIG_DIR = prevCfg;
+    if (prevCfg === undefined) delete process.env.MICLOUD_CONFIG_DIR;
+    else process.env.MICLOUD_CONFIG_DIR = prevCfg;
   }
 });
 
@@ -328,12 +328,12 @@ test("集成：sync 双向（云端创建→下行→改本地→上行→校验
 test("集成：sync 本地新增 .md 文件应上行创建云端", async (t) => {
   if (skipIfUnavailable(t)) return;
 
-  const cfgDir = await mkdtemp(join(tmpdir(), "mi-note-cli-cfg2-"));
-  const outDir = await mkdtemp(join(tmpdir(), "mi-note-cli-sync2-"));
-  const prevCfg = process.env.MI_NOTE_CLI_CONFIG_DIR;
-  process.env.MI_NOTE_CLI_CONFIG_DIR = cfgDir;
+  const cfgDir = await mkdtemp(join(tmpdir(), "micloud-cfg2-"));
+  const outDir = await mkdtemp(join(tmpdir(), "micloud-sync2-"));
+  const prevCfg = process.env.MICLOUD_CONFIG_DIR;
+  process.env.MICLOUD_CONFIG_DIR = cfgDir;
 
-  const { buildSyncPlan, executeSyncPlan } = await import("../src/sync.ts");
+  const { buildSyncPlan, executeSyncPlan } = await import("../../src/note/sync.ts");
   let createdId: string | undefined;
 
   try {
@@ -355,7 +355,7 @@ test("集成：sync 本地新增 .md 文件应上行创建云端", async (t) => 
     const found = entries.find((e) => (e.snippet ?? "").includes("本地新增") || String(e.subject ?? "").includes("本地新增"));
     // 通过状态拿到新建的 id 更可靠
     const stateFile = JSON.parse(
-      await readFile(join(outDir, ".mi-note-cli.state.json"), "utf-8"),
+      await readFile(join(outDir, ".micloud-note.state.json"), "utf-8"),
     );
     const ids = Object.keys(stateFile.notes ?? {});
     assert.ok(ids.length > 0, "状态应记录新建笔记的 id");
@@ -377,8 +377,8 @@ test("集成：sync 本地新增 .md 文件应上行创建云端", async (t) => 
     }
     await rm(outDir, { recursive: true, force: true });
     await rm(cfgDir, { recursive: true, force: true });
-    if (prevCfg === undefined) delete process.env.MI_NOTE_CLI_CONFIG_DIR;
-    else process.env.MI_NOTE_CLI_CONFIG_DIR = prevCfg;
+    if (prevCfg === undefined) delete process.env.MICLOUD_CONFIG_DIR;
+    else process.env.MICLOUD_CONFIG_DIR = prevCfg;
   }
 });
 

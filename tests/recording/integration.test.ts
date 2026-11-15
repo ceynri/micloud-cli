@@ -4,12 +4,12 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { peekOrRefreshAuth, refreshAuth } from "../src/auth.ts";
-import { MiRecordingClient } from "../src/client.ts";
-import { pullRecordings } from "../src/pull.ts";
-import { loadState } from "../src/config.ts";
-import { parseRecording } from "../src/recording.ts";
-import type { Recording } from "../src/types.ts";
+import { peekOrRefreshAuth, refreshAuth } from "../../src/core/auth.ts";
+import { MiRecordingClient } from "../../src/recording/client.ts";
+import { pullRecordings } from "../../src/recording/pull.ts";
+import { loadState } from "../../src/recording/config.ts";
+import { parseRecording } from "../../src/recording/recording.ts";
+import type { Recording } from "../../src/recording/types.ts";
 
 /**
  * 真实 API 集成测试（需要有效登录态）。
@@ -17,12 +17,12 @@ import type { Recording } from "../src/types.ts";
  * 运行：pnpm test:integration
  *
  * 读操作随意；写操作只有「把一条录音移到回收站 → 立刻恢复」的可逆往返，
- * 且仅在设置 MI_RECORDING_CLI_TEST_ID=<录音 id> 时执行（建议选一条无关紧要的短录音）。
+ * 且仅在设置 MICLOUD_TEST_RECORDING_ID=<录音 id> 时执行（建议选一条无关紧要的短录音）。
  * 不做永久删除。注意：删除会同步到手机，恢复后手机端会随之恢复。
  */
 
-const ENABLED = process.env.MI_RECORDING_CLI_INTEGRATION === "1";
-const ROUNDTRIP_ID = process.env.MI_RECORDING_CLI_TEST_ID;
+const ENABLED = process.env.MICLOUD_INTEGRATION === "1";
+const ROUNDTRIP_ID = process.env.MICLOUD_TEST_RECORDING_ID;
 /** 下载测试的体积上限，避免拉取大文件 */
 const MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024;
 
@@ -33,7 +33,7 @@ before(async () => {
   if (!ENABLED) return;
   const auth = await peekOrRefreshAuth();
   if (!auth) {
-    authError = "无有效登录态。请先运行 mi-recording-cli login";
+    authError = "无有效登录态。请先运行 micloud login";
     return;
   }
   client = new MiRecordingClient(auth, refreshAuth);
@@ -41,7 +41,7 @@ before(async () => {
 
 function skipIfUnavailable(t: { skip: (msg?: string) => void }): boolean {
   if (!ENABLED) {
-    t.skip("设置 MI_RECORDING_CLI_INTEGRATION=1 以启用真实 API 集成测试");
+    t.skip("设置 MICLOUD_INTEGRATION=1 以启用真实 API 集成测试");
     return true;
   }
   if (!client) {
@@ -69,8 +69,6 @@ test("集成：列表、回收站、空间与账号信息", async (t) => {
   assert.ok(Array.isArray(trash));
   const quota = await client!.getQuota();
   assert.equal(typeof quota.totalQuota, "number");
-  const profile = await client!.getProfile();
-  assert.equal(typeof profile, "object");
   console.error(`  → ${list.length} 条录音，回收站 ${trash.length} 条`);
 });
 
@@ -102,10 +100,10 @@ test("集成：不存在的录音给出明确错误", async (t) => {
   await assert.rejects(() => client!.getDownloadUrl("1"), /录音不存在/);
 });
 
-test("集成：删除 → 回收站 → 恢复往返（仅设置 MI_RECORDING_CLI_TEST_ID 时）", async (t) => {
+test("集成：删除 → 回收站 → 恢复往返（仅设置 MICLOUD_TEST_RECORDING_ID 时）", async (t) => {
   if (skipIfUnavailable(t)) return;
   if (!ROUNDTRIP_ID) {
-    t.skip("设置 MI_RECORDING_CLI_TEST_ID=<录音 id> 以启用可逆的删除/恢复往返测试");
+    t.skip("设置 MICLOUD_TEST_RECORDING_ID=<录音 id> 以启用可逆的删除/恢复往返测试");
     return;
   }
   const before = (await client!.listRecordings()).find((r) => r.id === ROUNDTRIP_ID);

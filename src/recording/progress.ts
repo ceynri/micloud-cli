@@ -1,4 +1,4 @@
-import { formatBytes } from "./utils.js";
+import { formatBytes } from "../core/utils.js";
 
 const RENDER_INTERVAL = 250;
 

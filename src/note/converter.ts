@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { formatDateTime, getDateTokens, sanitizeFileName } from "./utils.js";
+import { renderTemplate, dateVars } from "../core/template.js";
+import { formatDateTime, sanitizeFileName } from "../core/utils.js";
 import type {
   RawNoteEntry,
   RawFolderEntry,
@@ -710,45 +711,6 @@ export function extractSnippet(xml: string): string {
   );
 }
 
-/**
- * 按显示宽度截断字符串（CJK 字符记 2 列宽，其余记 1 列），超出加省略号。
- * 同时把内部换行/连续空白压成单空格，保证终端列表每条只占一行。
- * @param maxWidth 最大显示列宽
- */
-export function truncateDisplay(text: string, maxWidth: number): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  let width = 0;
-  let out = "";
-  for (const ch of flat) {
-    const w = isWide(ch) ? 2 : 1;
-    if (width + w > maxWidth) {
-      return out + "…";
-    }
-    width += w;
-    out += ch;
-  }
-  return out;
-}
-
-/** 判断字符是否为宽字符（CJK、全角等占 2 列） */
-function isWide(ch: string): boolean {
-  const cp = ch.codePointAt(0) ?? 0;
-  return (
-    (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
-    (cp >= 0x2e80 && cp <= 0x303e) || // CJK 部首、标点
-    (cp >= 0x3041 && cp <= 0x33ff) || // 假名、CJK 符号
-    (cp >= 0x3400 && cp <= 0x4dbf) || // CJK 扩展 A
-    (cp >= 0x4e00 && cp <= 0x9fff) || // CJK 统一表意
-    (cp >= 0xa000 && cp <= 0xa4cf) || // 彝文
-    (cp >= 0xac00 && cp <= 0xd7a3) || // 谚文音节
-    (cp >= 0xf900 && cp <= 0xfaff) || // CJK 兼容表意
-    (cp >= 0xfe30 && cp <= 0xfe4f) || // CJK 兼容形式
-    (cp >= 0xff00 && cp <= 0xff60) || // 全角 ASCII
-    (cp >= 0xffe0 && cp <= 0xffe6) || // 全角符号
-    (cp >= 0x20000 && cp <= 0x3fffd) // CJK 扩展 B+及表情等
-  );
-}
-
 // ============ 文件路径 ============
 
 /**
@@ -800,48 +762,13 @@ export function getNoteFilePath(
  */
 export function renderFileNameTemplate(template: string, note: ParsedNote): string {
   const ts = note.createDate || Date.now();
-  const t = getDateTokens(ts);
   const vars: Record<string, string> = {
-    YYYY: t.YYYY,
-    YY: t.YY,
-    MM: t.MM,
-    DD: t.DD,
-    HH: t.HH,
-    mm: t.mm,
-    ss: t.ss,
+    ...dateVars(ts),
     title: note.rawTitle,
     subject: note.subject,
     id: note.id,
   };
-
-  // 用 NUL/SOH 哨兵临时替换 `\[` `\]` 转义，避免被条件段解析器误吞。
-  // 这两个控制字符在文件名里非法，不会与用户输入冲突。
-  const ESC_OPEN = "\u0000";
-  const ESC_CLOSE = "\u0001";
-  let s = template.replace(/\\\[/g, ESC_OPEN).replace(/\\\]/g, ESC_CLOSE);
-
-  // 条件段：`[...]` 内任一 `${var}` 为空 → 整块丢；全非空 → 正常渲染。
-  // flat 不支持嵌套；未匹配的 `[` 不会被这里命中，自然作为字面留到下一步。
-  s = s.replace(/\[([^\[\]]*)\]/g, (_, segment: string) => {
-    let allFilled = true;
-    const rendered = segment.replace(/\$\{(\w+)\}/g, (m, key: string) => {
-      if (!Object.prototype.hasOwnProperty.call(vars, key)) return m;
-      const v = vars[key];
-      if (!v) allFilled = false;
-      return v;
-    });
-    return allFilled ? rendered : "";
-  });
-
-  // 段外剩余 `${var}`
-  s = s.replace(/\$\{(\w+)\}/g, (m, key: string) =>
-    Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : m,
-  );
-
-  // 还原转义的字面 `[` `]`
-  s = s.replace(new RegExp(ESC_OPEN, "g"), "[").replace(new RegExp(ESC_CLOSE, "g"), "]");
-
-  const cleaned = sanitizeFileName(s);
+  const cleaned = sanitizeFileName(renderTemplate(template, vars));
   if (cleaned) return cleaned;
 
   // 兜底：模板渲染为空时（如纯 `${title}` 无标题）退回 datetime，绝不产出空文件名

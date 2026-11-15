@@ -1,55 +1,38 @@
-# 从 mi-note-export 迁移到 mi-note-cli
+# 从 mi-note-cli 升级到 micloud
 
-`mi-note-cli` 是一个功能完整、独立的小米云笔记命令行工具。如果你之前用的是只能导出的 `mi-note-export`，本文帮你迁移。
+mi-note-cli 已并入 micloud：同一套命令放在 `micloud note` 下，另外多了录音（`micloud rec`）。笔记功能不变，只有一处行为变化：`--json` 或无终端时删除笔记 / 文件夹必须带 `-y`，否则直接报错（以前会不经确认直接删除）。脚本里的删除调用记得加 `-y`。
 
-> mi-note-cli 是独立工具，**不依赖、不读取、不修改** mi-note-export 的任何内容。仅本文档提及旧工具。
+## 安装
 
-## 主要差异
-
-| | mi-note-export | mi-note-cli |
-|---|---|---|
-| 范围 | 仅导出（云→本地） | 完整读写 + 文件夹 + 图片上传 + 导出 + **双向同步** |
-| 命令 | 单命令 | `login`/`list`/`get`/`search`/`create`/`update`/`delete`/`move`/`pin`/`folders`/`upload-image`/`export`/`sync` |
-| AI 友好 | — | 全局 `--json`，非交互环境快速失败 |
-| 本地↔云端 | 单向快照 | `export`（单向）+ `sync`（双向，含冲突模式） |
+```bash
+npm install -g micloud-cli
+npm uninstall -g mi-note-cli   # 可选，旧工具不会再更新
+```
 
 ## 命令对照
 
-| mi-note-export | mi-note-cli |
+所有笔记命令前加 `note`，选项不变：
+
+| mi-note-cli | micloud |
 |---|---|
-| `mi-note`（增量导出） | `mi-note-cli export -o <目录>` |
-| `mi-note --force` | `mi-note-cli export -o <目录> --force` |
-| `mi-note --delete-id <id>` | `mi-note-cli delete <id>` |
-| `mi-note --login` | `mi-note-cli login` |
-| `mi-note --clear-cache` | `mi-note-cli logout` |
+| `mi-note-cli login` / `logout` / `whoami` | `micloud login` / `logout` / `whoami`（不加 `note`，笔记和录音共用） |
+| `mi-note-cli list` | `micloud note list` |
+| `mi-note-cli sync -o ./notes --mode two-way` | `micloud note sync -o ./notes --mode two-way` |
+| `mi-note-cli export` / `get` / `create` / … | `micloud note export` / `get` / `create` / … |
 
-旧工具没有的新能力：`sync`（双向）、`create`、`update`、`move`、`pin`、文件夹管理、`upload-image`、`search`。
+AI Skill 换成新的：`npx skills remove mi-note-cli`，再 `npx -y skills add ceynri/micloud-cli --all`。
 
-## 登录
+## 自动沿用，无需操作
 
-登录态**不会**沿用。运行一次 `mi-note-cli login` 完成认证（打开浏览器）。mi-note-cli 维护自己独立的 cookie 缓存，与旧工具完全隔离。
+- **登录**：第一次运行时沿用 mi-note-cli 的登录状态（只读复制，不改动旧文件），不用重新登录。
+- **配置**：`.micloud/config.json` 里还没有笔记配置时，继续读旧的 `.mi-note-cli/config.json`。下次修改配置（如 `sync init`）时写到新位置，旧文件可以删掉。
+- **同步目录**：继续读目录里的 `.mi-note-cli.state.json`，下次同步时改存为 `.micloud-note.state.json`，不需要重新建立同步基线。没配 `output` 时，已存在的默认目录 `.mi-note-cli/output/` 继续使用。
 
-## 配置与状态
+升级后的第一次同步会把状态文件换成新名字，之后旧版 mi-note-cli 就读不到这个目录的同步记录了，请不要再混用。
 
-- 旧：工作目录的 `.mi-note-export.json` + 输出目录内的 `.sync-state.json`。
-- 新：拆成两份，思路与旧 mi-note-export 一致——
-  - **用户配置**：项目根 `.mi-note-cli/config.json`，存 `syncMode` / `output` / `fileNameTemplate` 等用户偏好（可入版控、团队共享）
-  - **同步状态**：`<output>/.mi-note-cli.state.json`，存同步基线（自动生成、跟 output 1:1 绑定、不入版控）
-- 默认 output 落到 `.mi-note-cli/output/`，用户既不传 `-o` 也未配 `output` 时使用。
+## 环境变量
 
-不会自动导入旧配置。复刻旧设置：
-
-```bash
-# 旧: { "output": "./my-notes" }
-# 新: 直接传 -o，或用 init 设默认同步模式
-mi-note-cli export -o ./mi-notes      # 单向，行为同旧工具
-mi-note-cli sync init                  # 可选：设默认同步模式
-```
-
-## 推荐路径
-
-1. `mi-note-cli login`
-2. 只想备份（旧行为）：`mi-note-cli export -o ./mi-notes`
-3. 想让本地修改回流云端：`mi-note-cli sync -o ./mi-notes --mode two-way`
-
-你的 `mi-note-export` 安装与数据原样保留，可独立保留或删除。
+| mi-note-cli | micloud |
+|---|---|
+| `MI_NOTE_CLI_CONFIG_DIR` | `MICLOUD_CONFIG_DIR` |
+| `MI_NOTE_CLI_INTEGRATION` | `MICLOUD_INTEGRATION` |

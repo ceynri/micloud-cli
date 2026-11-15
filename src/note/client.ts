@@ -1,9 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { buildHeaders } from "./auth.js";
-import { fileExists, ensureFileDir, delay, randomDelay } from "./utils.js";
+import { MiCloudHttp, AuthExpiredError, API_BASE, type AuthRefresher } from "../core/http.js";
+import { fileExists, ensureFileDir, delay, randomDelay } from "../core/utils.js";
+import type { AuthInfo } from "../core/auth.js";
 import type {
-  AuthInfo,
   RawNoteEntry,
   RawFolderEntry,
   FullPageData,
@@ -20,30 +20,19 @@ import type {
   CommitUploadResponse,
 } from "./types.js";
 
-const API_BASE = "https://i.mi.com";
-
-/**
- * 登录态失效时的续期回调：成功返回新的 AuthInfo，失败返回 null。
- * 由上层注入（通常是静默重开持久化浏览器换发 serviceToken）。
- */
-export type AuthRefresher = () => Promise<AuthInfo | null>;
-
 /**
  * 小米云笔记 API 客户端：封装全部读/写/上传/下载操作。
  *
  * 写操作统一为 POST + application/x-www-form-urlencoded，body 携带 serviceToken。
  * 更新/删除遵循乐观锁：先 GET 拿最新 tag，再提交。
  *
- * 登录态失效（401）时，若注入了 refresher，会静默续期并自动重试一次。
+ * 登录态续期、超时与只读请求的重试由 MiCloudHttp 负责。
  */
 export class MiNoteClient {
-  constructor(
-    private auth: AuthInfo,
-    private readonly refresher?: AuthRefresher,
-  ) {}
+  private readonly http: MiCloudHttp;
 
-  private get cookie(): string {
-    return this.auth.cookie;
+  constructor(auth: AuthInfo, refresher?: AuthRefresher) {
+    this.http = new MiCloudHttp(auth, refresher, `${API_BASE}/note/h5`);
   }
 
   // ============ 读操作 ============
@@ -53,14 +42,9 @@ export class MiNoteClient {
     limit = 200,
     syncTag = "",
   ): Promise<FullPageData> {
-    const params = new URLSearchParams({
-      ts: String(Date.now()),
-      limit: String(limit),
-    });
-    if (syncTag) params.set("syncTag", syncTag);
-
-    const url = `${API_BASE}/note/full/page/?${params}`;
-    const json = await this.getJson<FullPageResponse>(url);
+    const query: Record<string, string> = { limit: String(limit) };
+    if (syncTag) query.syncTag = syncTag;
+    const json = await this.http.getJson<FullPageResponse>("/note/full/page/", query);
     if (json.result !== "ok" || !json.data) {
       throw new Error(`获取笔记列表失败: ${JSON.stringify(json)}`);
     }
@@ -104,8 +88,9 @@ export class MiNoteClient {
 
   /** 获取笔记详情 */
   async getNote(noteId: string | number): Promise<RawNoteEntry> {
-    const url = `${API_BASE}/note/note/${encodeURIComponent(String(noteId))}/?ts=${Date.now()}`;
-    const json = await this.getJson<NoteDetailResponse>(url);
+    const json = await this.http.getJson<NoteDetailResponse>(
+      `/note/note/${encodeURIComponent(String(noteId))}/`,
+    );
     if (json.result !== "ok" || !json.data?.entry) {
       throw new Error(`获取笔记详情失败: ${noteId}`);
     }
@@ -116,9 +101,8 @@ export class MiNoteClient {
 
   /** 创建笔记 */
   async createNote(entry: WriteNoteEntry): Promise<RawNoteEntry> {
-    const json = await this.postForm<CreateNoteResponse>("/note/note", {
+    const json = await this.http.postForm<CreateNoteResponse>("/note/note", {
       entry: JSON.stringify(entry),
-      serviceToken: this.auth.serviceToken,
     });
     if (json.result !== "ok" || !json.data?.entry) {
       throw new Error(`创建笔记失败: ${json.description ?? JSON.stringify(json)}`);
@@ -131,11 +115,10 @@ export class MiNoteClient {
     noteId: string,
     entry: WriteNoteEntry,
   ): Promise<RawNoteEntry> {
-    const json = await this.postForm<NoteDetailResponse>(
+    const json = await this.http.postForm<NoteDetailResponse>(
       `/note/note/${encodeURIComponent(noteId)}`,
       {
         entry: JSON.stringify(entry),
-        serviceToken: this.auth.serviceToken,
       },
     );
     if (json.result !== "ok") {
@@ -175,9 +158,8 @@ export class MiNoteClient {
       type: "folder",
       setting: { themeId: 0, stickyTime: 0, version: 0 },
     };
-    const json = await this.postForm<CreateFolderResponse>("/note/folder", {
+    const json = await this.http.postForm<CreateFolderResponse>("/note/folder", {
       entry: JSON.stringify(entry),
-      serviceToken: this.auth.serviceToken,
     });
     if (json.result !== "ok" || !json.data?.entry) {
       throw new Error(`创建文件夹失败: ${json.description ?? JSON.stringify(json)}`);
@@ -190,11 +172,10 @@ export class MiNoteClient {
     folderId: string,
     folder: WriteFolderEntry,
   ): Promise<RawFolderEntry> {
-    const json = await this.postForm<FolderDetailResponse>(
+    const json = await this.http.postForm<FolderDetailResponse>(
       `/note/folder/${encodeURIComponent(folderId)}`,
       {
         entry: JSON.stringify(folder),
-        serviceToken: this.auth.serviceToken,
       },
     );
     if (json.result !== "ok") {
@@ -243,12 +224,11 @@ export class MiNoteClient {
     tag: string,
     purge: boolean,
   ): Promise<DeleteResponse> {
-    const json = await this.postForm<DeleteResponse>(
+    const json = await this.http.postForm<DeleteResponse>(
       `/note/full/${encodeURIComponent(id)}/delete`,
       {
         tag,
         purge: String(purge),
-        serviceToken: this.auth.serviceToken,
       },
     );
     if (json.result !== "ok") {
@@ -276,12 +256,7 @@ export class MiNoteClient {
     const maxRetries = 2;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const resp = await this.requestWithRetry(() =>
-          fetch(url, {
-            headers: buildHeaders(this.cookie),
-            redirect: "follow",
-          }),
-        );
+        const resp = await this.http.fetchRaw(url, { redirect: "follow" });
         if (!resp.ok) {
           if (attempt < maxRetries) {
             await delay(500 * (attempt + 1));
@@ -294,9 +269,7 @@ export class MiNoteClient {
         await writeFile(savePath, buffer);
         return true;
       } catch (err) {
-        if (err instanceof Error && err.message.includes("登录态已过期")) {
-          throw err;
-        }
+        if (err instanceof AuthExpiredError) throw err;
         if (attempt < maxRetries) {
           await delay(500 * (attempt + 1));
           continue;
@@ -331,9 +304,9 @@ export class MiNoteClient {
         },
       },
     };
-    const json = await this.postForm<RequestUploadResponse>(
+    const json = await this.http.postForm<RequestUploadResponse>(
       "/file/v2/user/request_upload_file",
-      { data: JSON.stringify(payload), serviceToken: this.auth.serviceToken },
+      { data: JSON.stringify(payload) },
     );
     if (json.result !== "ok" || !json.data) {
       throw new Error(
@@ -347,9 +320,9 @@ export class MiNoteClient {
   private async commitUpload(
     payload: CommitUploadPayload,
   ): Promise<CommitUploadResponse> {
-    const json = await this.postForm<CommitUploadResponse>(
+    const json = await this.http.postForm<CommitUploadResponse>(
       "/file/v2/user/commit",
-      { commit: JSON.stringify(payload), serviceToken: this.auth.serviceToken },
+      { commit: JSON.stringify(payload) },
     );
     if (json.result !== "ok" || !json.data?.fileId) {
       throw new Error(`提交上传失败: ${json.description ?? JSON.stringify(json)}`);
@@ -427,90 +400,5 @@ export class MiNoteClient {
     };
     const committed = await this.commitUpload(commitPayload);
     return { fileId: committed.data.fileId, digest: committed.data.digest };
-  }
-
-  // ============ 底层请求 ============
-
-  /**
-   * 执行一次带登录态的请求；遇 401 且有 refresher 时静默续期并重试一次。
-   * @param send 用当前 cookie 发请求，返回 Response
-   */
-  private async requestWithRetry(
-    send: () => Promise<Response>,
-  ): Promise<Response> {
-    let resp = await send();
-    if (resp.status === 401 && this.refresher) {
-      await discardResponseBody(resp);
-      const newAuth = await this.refresher();
-      if (newAuth) {
-        this.auth = newAuth;
-        resp = await send(); // 用新 cookie 重试一次
-      }
-    }
-    if (resp.status === 401) {
-      await discardResponseBody(resp);
-      throw new Error("登录态已过期，请重新登录（mi-note-cli login）");
-    }
-    return resp;
-  }
-
-  private async getJson<T>(url: string): Promise<T> {
-    const resp = await this.requestWithRetry(() =>
-      fetch(url, { headers: buildHeaders(this.cookie) }),
-    );
-    if (!resp.ok) {
-      throw new Error(`请求失败 ${resp.status} ${resp.statusText}`);
-    }
-    return (await parseJsonResponse(resp)) as T;
-  }
-
-  private async postForm<T>(
-    path: string,
-    params: Record<string, string>,
-  ): Promise<T> {
-    const send = (): Promise<Response> => {
-      // serviceToken 随 cookie 续期一起更新，故每次发送时重新取值构造 body
-      const merged = { ...params };
-      if ("serviceToken" in merged) merged.serviceToken = this.auth.serviceToken;
-      const body = Object.entries(merged)
-        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-        .join("&");
-      return fetch(`${API_BASE}${path}`, {
-        method: "POST",
-        headers: {
-          ...buildHeaders(this.cookie),
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        },
-        body,
-      });
-    };
-    const resp = await this.requestWithRetry(send);
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`请求失败 ${resp.status}: ${text}`);
-    }
-    return (await parseJsonResponse(resp)) as T;
-  }
-}
-
-/**
- * 解析响应体为 JSON。服务端降级 / 网关错误时可能返回 HTML 而非 JSON，
- * 此时 resp.json() 会抛出晦涩的 SyntaxError，这里转成可读错误。
- */
-async function parseJsonResponse(resp: Response): Promise<unknown> {
-  const text = await resp.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    const preview = text.slice(0, 120).replace(/\s+/g, " ").trim();
-    throw new Error(`服务端返回了非 JSON 响应（可能是登录态失效或服务异常）：${preview}`);
-  }
-}
-
-async function discardResponseBody(resp: Response): Promise<void> {
-  try {
-    await resp.body?.cancel();
-  } catch {
-    // ignore cleanup errors
   }
 }

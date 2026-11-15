@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseTimeInput } from "../src/dates.ts";
-import { recordingRelPath, renderFileName, pathKey } from "../src/template.ts";
-import { parseRecording } from "../src/recording.ts";
+import { parseTimeInput } from "../../src/recording/dates.ts";
+import { recordingRelPath, renderFileName, pathKey } from "../../src/recording/template.ts";
+import { parseRecording } from "../../src/recording/recording.ts";
 import {
   formatBytes,
   formatDuration,
@@ -10,7 +10,7 @@ import {
   truncateDisplay,
   truncateUtf8,
   displayWidth,
-} from "../src/utils.ts";
+} from "../../src/core/utils.ts";
 
 function local(y: number, mo: number, d: number, h = 0, mi = 0, s = 0, ms = 0): number {
   return new Date(y, mo - 1, d, h, mi, s, ms).getTime();

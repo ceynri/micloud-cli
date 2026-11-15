@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { Readable, Transform, type Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
-import { AuthExpiredError, MiApiError } from "./client.js";
-import { delay, ensureFileDir } from "./utils.js";
+import { AuthExpiredError, MiApiError } from "../core/http.js";
+import { delay, ensureFileDir } from "../core/utils.js";
 import type { BlockStorageData } from "./types.js";
 
 /** 连续这么久收不到数据即视为卡住 */
@@ -181,7 +181,7 @@ export async function downloadToStream(
   recording: { id: string; size: number; sha1?: string },
   out: Writable,
 ): Promise<void> {
-  const dir = await mkdtemp(join(tmpdir(), "mi-recording-cli-"));
+  const dir = await mkdtemp(join(tmpdir(), "micloud-recording-"));
   try {
     const file = join(dir, "audio");
     await fetchRecording(source, recording, file);

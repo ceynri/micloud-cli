@@ -9,19 +9,19 @@ import {
   exportNotes,
   computeHash,
   type SyncClient,
-} from "../src/sync.ts";
-import { loadState, saveState } from "../src/config.ts";
-import { fileExists } from "../src/utils.ts";
+} from "../../src/note/sync.ts";
+import { loadState, saveState } from "../../src/note/config.ts";
+import { fileExists } from "../../src/core/utils.ts";
 import type {
   RawNoteEntry,
   RawFolderEntry,
   SyncMode,
   WriteNoteEntry,
-} from "../src/types.ts";
+} from "../../src/note/types.ts";
 
 /**
  * src/sync.ts 执行层测试：用内存假客户端代替小米 API，零网络依赖。
- * 通过 MI_NOTE_CLI_CONFIG_DIR 把用户配置隔离到临时目录。
+ * 通过 MICLOUD_CONFIG_DIR 把用户配置隔离到临时目录。
  */
 
 let root: string;
@@ -30,16 +30,16 @@ let cachePath: string;
 let prevEnv: string | undefined;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "mi-note-cli-synctest-"));
+  root = await mkdtemp(join(tmpdir(), "micloud-synctest-"));
   outputDir = join(root, "notes");
   cachePath = join(root, "export-cache.json");
-  prevEnv = process.env.MI_NOTE_CLI_CONFIG_DIR;
-  process.env.MI_NOTE_CLI_CONFIG_DIR = root;
+  prevEnv = process.env.MICLOUD_CONFIG_DIR;
+  process.env.MICLOUD_CONFIG_DIR = root;
 });
 
 afterEach(async () => {
-  if (prevEnv === undefined) delete process.env.MI_NOTE_CLI_CONFIG_DIR;
-  else process.env.MI_NOTE_CLI_CONFIG_DIR = prevEnv;
+  if (prevEnv === undefined) delete process.env.MICLOUD_CONFIG_DIR;
+  else process.env.MICLOUD_CONFIG_DIR = prevEnv;
   await rm(root, { recursive: true, force: true });
 });
 
@@ -361,7 +361,7 @@ test("sync: 子目录笔记的附件引用写成 ../assets/，旧版 assets/ 写
     `<img fileid="${IMAGE_ID}" imgshow="0" imgdes="" />`,
     { folderId: "f1", setting: { data: [{ fileId: IMAGE_ID, mimeType: "image/jpeg" }] } },
   );
-  const { files } = (await import("../src/converter.ts")).parseNoteEntry(note);
+  const { files } = (await import("../../src/note/converter.ts")).parseNoteEntry(note);
   const name = files[0].name;
 
   // 旧版本导出的文件：子目录里写的是 assets/

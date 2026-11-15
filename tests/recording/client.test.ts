@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MiRecordingClient, MiApiError, unwrapEnvelope } from "../src/client.ts";
-import type { AuthInfo, RawRecording } from "../src/types.ts";
+import { MiRecordingClient } from "../../src/recording/client.ts";
+import { MiApiError, unwrapEnvelope } from "../../src/core/http.ts";
+import type { AuthInfo } from "../../src/core/auth.ts";
+import type { RawRecording } from "../../src/recording/types.ts";
 
 const OLD_AUTH: AuthInfo = { cookie: "serviceToken=old; userId=u", serviceToken: "old", userId: "u" };
 const NEW_AUTH: AuthInfo = { cookie: "serviceToken=new; userId=u", serviceToken: "new", userId: "u" };

@@ -1,5 +1,5 @@
 import { getClient } from "./shared.js";
-import { success, logInfo, fail } from "../output.js";
+import { success, logInfo, fail } from "../../core/output.js";
 import type { WriteNoteEntry } from "../types.js";
 
 /** 将笔记移动到指定文件夹（复用更新接口，改 folderId） */

@@ -8,7 +8,7 @@ import {
   shortTypeName,
   sortByRecordedAt,
 } from "../recording.js";
-import { success, logInfo, fail, isJsonMode } from "../output.js";
+import { success, logInfo, fail, isJsonMode } from "../../core/output.js";
 import {
   displayWidth,
   formatBytes,
@@ -19,7 +19,7 @@ import {
   padStartDisplay,
   parsePositiveInt,
   truncateDisplay,
-} from "../utils.js";
+} from "../../core/utils.js";
 import type { Recording, RecordingType, TrashedRecording } from "../types.js";
 
 const TITLE_MAX_WIDTH = 56;

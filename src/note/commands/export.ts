@@ -1,7 +1,7 @@
 import { getClient } from "./shared.js";
 import { exportNotes } from "../sync.js";
 import { resolveOutputDir } from "../config.js";
-import { isJsonMode, success, fail, EXIT_PARTIAL_FAILURE } from "../output.js";
+import { isJsonMode, success, fail, EXIT_PARTIAL_FAILURE } from "../../core/output.js";
 
 interface ExportOptions {
   output?: string;

@@ -1,40 +1,47 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join, resolve, relative, isAbsolute } from "node:path";
-import { ensureFileDir, fileExists } from "./utils.js";
+import {
+  getConfigPath,
+  getDefaultOutputDir as coreDefaultOutputDir,
+  getProjectRoot,
+  loadSection,
+  resolveOutputPath,
+  saveSection,
+} from "../core/config.js";
+import { logInfo } from "../core/output.js";
+import { fileExists, writeFileAtomic } from "../core/utils.js";
 import type { SyncMode, UserConfig, SyncState } from "./types.js";
 
 /**
  * 两类元数据按位置与归属拆分：
  *
- * - 用户配置：项目根 `.mi-note-cli/config.json`（手写、可入版控、可团队共享）
- * - 同步状态：`<outputDir>/.mi-note-cli.state.json`（自动生成、跟 output 1:1 绑定）
+ * - 笔记配置：项目配置 `.micloud/config.json` 的 `note` 节（手写、可入版控、可团队共享）
+ * - 同步状态：`<outputDir>/.micloud-note.state.json`（自动生成、跟 output 1:1 绑定）
  *
- * `MI_NOTE_CLI_CONFIG_DIR` 环境变量可覆盖项目根，便于测试隔离。
+ * 兼容旧版（mi-note-cli）：没有 `note` 节时读 `.mi-note-cli/config.json`；
+ * 没有新状态文件时读 `.mi-note-cli.state.json`（保存时改用新文件名并移除旧文件）；
+ * 既没传 `-o` 也没配 output 时，若旧的默认目录 `.mi-note-cli/output/` 存在则继续用它。
  */
-const CONFIG_DIRNAME = ".mi-note-cli";
-const CONFIG_FILENAME = "config.json";
-const STATE_FILENAME = ".mi-note-cli.state.json";
-/** 默认 output 目录名（位于 .mi-note-cli/ 下，零配置时使用） */
-const DEFAULT_OUTPUT_SUBDIR = "output";
+const STATE_FILENAME = ".micloud-note.state.json";
+const LEGACY_STATE_FILENAME = ".mi-note-cli.state.json";
+const LEGACY_CONFIG = join(".mi-note-cli", "config.json");
+const LEGACY_DEFAULT_OUTPUT = join(".mi-note-cli", "output");
 const DEFAULT_SYNC_MODE: SyncMode = "manual";
+
+export { getProjectRoot };
 
 // ============================================================
 // 路径解析
 // ============================================================
 
-/** 项目根目录（用户配置与默认 output 的基准） */
-export function getProjectRoot(): string {
-  return process.env.MI_NOTE_CLI_CONFIG_DIR || process.cwd();
-}
-
-/** 用户配置文件绝对路径：`<root>/.mi-note-cli/config.json` */
+/** 配置文件绝对路径：`<root>/.micloud/config.json` */
 export function getUserConfigPath(): string {
-  return join(getProjectRoot(), CONFIG_DIRNAME, CONFIG_FILENAME);
+  return getConfigPath();
 }
 
-/** 默认 output 目录绝对路径：`<root>/.mi-note-cli/output/` */
+/** 默认 output 目录绝对路径：`<root>/.micloud/note/` */
 export function getDefaultOutputDir(): string {
-  return join(getProjectRoot(), CONFIG_DIRNAME, DEFAULT_OUTPUT_SUBDIR);
+  return coreDefaultOutputDir("note");
 }
 
 /** 给定 output 目录，返回其内的 state 文件绝对路径 */
@@ -53,41 +60,36 @@ export function toOutputAbs(relPath: string, outputDir: string): string {
 }
 
 // ============================================================
-// 用户配置（UserConfig）
+// 笔记配置（UserConfig）
 // ============================================================
 
-function emptyUserConfig(): UserConfig {
-  return {};
-}
-
 /**
- * 读取项目用户配置（不存在则返回空壳；不读旧 .mi-note-cli.json 兼容）。
+ * 读取笔记配置（不存在则返回空壳）。
  *
  * 回落形态：返回 `{}`（全字段 undefined）。消费者通过 `??` 链回落到默认值；
- * 显式 syncMode/output/fileNameTemplate 白名单也防止旧字段（如 lastSync/notes）误漂进 UserConfig。
+ * 显式 syncMode/output/fileNameTemplate 白名单也防止无关字段误漂进 UserConfig。
  * 与 `loadState` 的容错风格刻意不同：state 由工具自动写入，schema 漂移可控。
  */
 export async function loadUserConfig(): Promise<UserConfig> {
-  const file = getUserConfigPath();
-  if (!(await fileExists(file))) return emptyUserConfig();
-  try {
-    const raw = await readFile(file, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<UserConfig>;
-    return {
-      syncMode: parsed.syncMode,
-      output: parsed.output,
-      fileNameTemplate: parsed.fileNameTemplate,
-    };
-  } catch {
-    return emptyUserConfig();
-  }
+  const raw = await loadSection("note");
+  return {
+    syncMode: typeof raw.syncMode === "string" ? (raw.syncMode as SyncMode) : undefined,
+    output: typeof raw.output === "string" ? raw.output : undefined,
+    fileNameTemplate: typeof raw.fileNameTemplate === "string" ? raw.fileNameTemplate : undefined,
+  };
 }
 
-/** 写入用户配置（自动创建 .mi-note-cli 父目录） */
+/** 写入笔记配置（其他服务的配置原样保留）；旧版配置文件从此不再使用，提示可删除 */
 export async function saveUserConfig(cfg: UserConfig): Promise<void> {
-  const file = getUserConfigPath();
-  await ensureFileDir(file);
-  await writeFile(file, JSON.stringify(cfg, null, 2), "utf-8");
+  const section: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(cfg)) {
+    if (value !== undefined) section[key] = value;
+  }
+  await saveSection("note", section);
+  const legacy = join(getProjectRoot(), LEGACY_CONFIG);
+  if (await fileExists(legacy)) {
+    logInfo(`ℹ️ 笔记配置已写入 ${getConfigPath()}，旧的 ${legacy} 不再使用，可删除`);
+  }
 }
 
 // ============================================================
@@ -106,11 +108,13 @@ function emptyState(): SyncState {
  * 而 `loadUserConfig` 回落到全字段 undefined（消费者用 `??` 链回落到默认值）。
  */
 export async function loadState(outputDir: string): Promise<SyncState> {
-  const file = getStatePath(outputDir);
-  if (!(await fileExists(file))) return emptyState();
+  let file = getStatePath(outputDir);
+  if (!(await fileExists(file))) {
+    file = join(outputDir, LEGACY_STATE_FILENAME);
+    if (!(await fileExists(file))) return emptyState();
+  }
   try {
-    const raw = await readFile(file, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<SyncState>;
+    const parsed = JSON.parse(await readFile(file, "utf-8")) as Partial<SyncState>;
     return {
       lastSync: parsed.lastSync ?? null,
       syncTag: parsed.syncTag,
@@ -122,14 +126,13 @@ export async function loadState(outputDir: string): Promise<SyncState> {
   }
 }
 
-/** 写回同步状态（自动创建父目录，幂等） */
-export async function saveState(
-  outputDir: string,
-  state: SyncState,
-): Promise<void> {
-  const file = getStatePath(outputDir);
-  await ensureFileDir(file);
-  await writeFile(file, JSON.stringify(state, null, 2), "utf-8");
+/**
+ * 原子写回同步状态（自动创建父目录，幂等）。
+ * 写成功后移除旧版状态文件，避免两份状态并存、旧版工具读到过期的基线。
+ */
+export async function saveState(outputDir: string, state: SyncState): Promise<void> {
+  await writeFileAtomic(getStatePath(outputDir), JSON.stringify(state, null, 2));
+  await rm(join(outputDir, LEGACY_STATE_FILENAME), { force: true });
 }
 
 // ============================================================
@@ -138,52 +141,40 @@ export async function saveState(
 
 /**
  * 解析生效的 output 目录（绝对路径）。
- * 优先级：CLI `-o <dir>` > UserConfig.output > `<root>/.mi-note-cli/output/`
+ * 优先级：命令行 `-o <dir>` > 配置 output > 旧版默认目录 `.mi-note-cli/output/`（存在时）> `<root>/.micloud/note/`
  *
- * 相对路径基准：
- * - CLI `-o`：基于 `process.cwd()`（用户在终端的当前位置，符合 Unix 工具约定）
- * - UserConfig.output：基于项目根（配置文件所在位置）
- * - 默认值：基于项目根
- *
- * 两种基准刻意不同：CLI 参数遵循 pwd 直觉，配置字段遵循「相对配置文件」直觉。
+ * 相对路径基准：命令行 `-o` 基于当前目录（符合 Unix 工具约定）；配置 output 与默认值基于项目根。
  */
 export async function resolveOutputDir(cliOutput?: string): Promise<string> {
   if (cliOutput) return resolve(cliOutput);
   const cfg = await loadUserConfig();
-  if (cfg.output) {
-    return isAbsolute(cfg.output)
-      ? cfg.output
-      : resolve(getProjectRoot(), cfg.output);
-  }
+  if (cfg.output) return resolveOutputPath("note", undefined, cfg.output);
+  const legacy = join(getProjectRoot(), LEGACY_DEFAULT_OUTPUT);
+  if (await fileExists(legacy)) return legacy;
   return getDefaultOutputDir();
 }
 
-/** 解析生效的同步模式：CLI > 用户配置 > 默认 */
+/** 解析生效的同步模式：命令行 > 配置 > 默认 */
 export async function resolveSyncMode(cliMode?: SyncMode): Promise<SyncMode> {
   if (cliMode) return cliMode;
   const cfg = await loadUserConfig();
   return cfg.syncMode ?? DEFAULT_SYNC_MODE;
 }
 
-/** 设置默认同步模式（写入用户配置） */
+/** 设置默认同步模式（写入配置） */
 export async function setSyncMode(mode: SyncMode): Promise<void> {
   const cfg = await loadUserConfig();
   cfg.syncMode = mode;
   await saveUserConfig(cfg);
 }
 
-/** 设置默认 output 目录（写入用户配置） */
+/** 设置默认 output 目录（写入配置） */
 export async function setOutput(output: string): Promise<void> {
   const cfg = await loadUserConfig();
   cfg.output = output;
   await saveUserConfig(cfg);
 }
 
-export const ALL_MODES: SyncMode[] = [
-  "cloud-first",
-  "local-first",
-  "two-way",
-  "manual",
-];
+export const ALL_MODES: SyncMode[] = ["cloud-first", "local-first", "two-way", "manual"];
 
 export { DEFAULT_SYNC_MODE };

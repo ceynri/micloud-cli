@@ -1,6 +1,6 @@
 import { getClient, buildFilter, hasFilter, DEVICE_SYNC_WARNING, type FilterOptions } from "./shared.js";
 import { printRecordingTable, summarize } from "./list.js";
-import { isFatalError } from "../client.js";
+import { isFatalError } from "../../core/http.js";
 import { getStatePath, lockOutputDir, resolveOutputDir, saveState } from "../config.js";
 import {
   checkCloudDeletable,
@@ -14,8 +14,8 @@ import {
   type SkippedItem,
 } from "../pull.js";
 import { matchesFilter, sortByRecordedAt } from "../recording.js";
-import { success, logInfo, fail, isJsonMode, confirmDestructive, finishBatch } from "../output.js";
-import { formatBytes, formatDuration, randomDelay } from "../utils.js";
+import { success, logInfo, fail, isJsonMode, confirmDestructive, finishBatch } from "../../core/output.js";
+import { formatBytes, formatDuration, randomDelay } from "../../core/utils.js";
 import type { PullState, Recording } from "../types.js";
 
 interface DeleteOptions extends FilterOptions {

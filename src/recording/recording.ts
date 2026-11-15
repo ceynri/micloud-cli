@@ -30,14 +30,6 @@ const DEFAULT_BITRATE = 64000;
 /** extraInfo.appType → 来源应用 */
 const APP_TYPE_NAMES: Record<number, string> = { 1: "微信", 2: "企业微信" };
 
-/** 回收站保留天数（按会员等级，取自网页端） */
-export const TRASH_RETENTION_DAYS: Record<string, number> = {
-  None: 30,
-  FirstLevel: 60,
-  SecondLevel: 90,
-  ThirdLevel: 180,
-};
-
 const DAY = 86_400_000;
 /** 早于此时间的时间戳视为无效（2000-01-01） */
 const MIN_VALID_TIME = 946_684_800_000;

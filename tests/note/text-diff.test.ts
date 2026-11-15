@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diffLines, formatDiff } from "../src/text-diff.ts";
+import { diffLines, formatDiff } from "../../src/note/text-diff.ts";
 
 test("diffLines: 相同内容全为上下文行", () => {
   assert.deepEqual(diffLines("a\nb", "a\nb"), [

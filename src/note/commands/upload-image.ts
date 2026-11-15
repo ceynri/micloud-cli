@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { getClient } from "./shared.js";
-import { inferImageMimeType } from "../utils.js";
-import { success, logInfo, fail } from "../output.js";
+import { inferImageMimeType } from "../images.js";
+import { success, logInfo, fail } from "../../core/output.js";
 
 interface UploadOptions {
   mime?: string;

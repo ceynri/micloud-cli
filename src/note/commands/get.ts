@@ -1,6 +1,6 @@
 import { getClient } from "./shared.js";
 import { parseNoteEntry, xmlToMarkdown, deriveTitle } from "../converter.js";
-import { isJsonMode, output, success, fail } from "../output.js";
+import { isJsonMode, output, success, fail } from "../../core/output.js";
 
 interface GetOptions {
   raw?: boolean;

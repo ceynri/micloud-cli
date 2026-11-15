@@ -1,8 +1,8 @@
 import { getClient, resolveContent, contentBaseDir } from "./shared.js";
 import { markdownToXml, extractSnippet } from "../converter.js";
 import { uploadLocalImages, withAttachments } from "../images.js";
-import { buildExtraInfoString } from "../note.js";
-import { success, logInfo, fail } from "../output.js";
+import { buildExtraInfoString } from "../extra-info.js";
+import { success, logInfo, fail } from "../../core/output.js";
 import type { WriteNoteEntry } from "../types.js";
 
 interface CreateOptions {

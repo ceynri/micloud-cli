@@ -1,236 +1,117 @@
 [English](./README.en.md) | 简体中文
 
-# mi-note-cli
+# micloud
 
-小米云笔记（i.mi.com）的全功能命令行工具——读取、创建、更新、删除、移动、置顶笔记，管理文件夹，上传图片，导出与**双向同步**。**专为 AI / 脚本调用设计**（统一 `--json` 输出、非交互模式快速失败）。
+小米云服务（i.mi.com）的命令行工具，为 AI / 脚本调用设计。一次登录，同时管理：
 
-> 从旧的 mi-note-export 迁移？见 [MIGRATION.md](./MIGRATION.md)。
-
-> ⚠️ **实验阶段**：本项目仍在快速迭代中，minor 版本（`x.Y.z`）的更新就可能包含破坏性变更。如果你追求稳定性，请将依赖锁定到 minor 版本（如 `~0.1.0` 而非 `^0.1.0`）。升级后出现问题时，可查看最新 [Releases](https://github.com/ceynri/mi-note-cli/releases) 的更新说明，确认是已知变更后提 [issue](https://github.com/ceynri/mi-note-cli/issues)。
-
-## 功能
-
-- **认证**：浏览器交互式登录，Cookie 缓存
-- **读**：列出笔记、查看单条笔记（转 Markdown）、关键词搜索、列出文件夹
-- **写**：创建 / 更新 / 删除 / 移动 / 置顶笔记
-- **文件夹**：创建 / 重命名 / 删除
-- **图片**：上传本地图片，返回可嵌入笔记的引用
-- **导出 `export`**：单向云→本地，把笔记导出为 Markdown（含附件、按文件夹组织），永不修改云端
-- **同步 `sync`**：本地与云端双向同步，3-way 差异检测 + 多种冲突模式
-- **AI 友好**：全局 `--json` 输出结构化结果；非交互环境下不弹浏览器、直接报错
-
-## 安装
-
-### 作为 CLI 工具
+- **笔记**：读写，转成 Markdown；导出，或与本地目录双向同步
+- **录音**：把手机同步上云的录音增量拉到本地，再清理云端
 
 ```bash
-npm install -g mi-note-cli
+npm install -g micloud-cli
+micloud login                               # 打开浏览器登录小米账号，之后自动续期
+micloud note sync -o ./notes --mode two-way # 笔记与本地目录双向同步
+micloud rec pull -o ./recordings            # 录音增量拉取到本地
 ```
 
-> 环境要求：Node.js >= 18。Playwright 仅用于登录时打开浏览器，优先使用系统已安装的 Chrome。
+> 需要 Node.js >= 18 和 Chrome（登录时打开浏览器用）。没有 Chrome 时运行 `npx playwright install chromium`。
 
-### 作为 AI Skill
-
-通过 [`npx skills`](https://github.com/agentc-app/skills) 安装内置 skill，让 AI Agent 了解此工具的用法：
+给 AI Agent 用：
 
 ```bash
-npx -y skills add ceynri/mi-note-cli --all
+npx -y skills add ceynri/micloud-cli --all
 ```
 
-或自选安装到哪些 agent：
+> ⚠️ 实验阶段：minor 版本（`0.Y.z`）可能含破坏性变更，要稳定请锁定 minor 版本（如 `~0.5.0`）。
 
-```bash
-npx skills add ceynri/mi-note-cli
-```
+## 给 AI / 脚本调用
 
-## 快速开始
+- **加 `--json`**：成功输出 `{"ok":true,"data":...}`，失败输出 `{"ok":false,"error":"..."}`；日志和进度走 stderr，不影响解析。
+- **退出码**：`0` 成功；`2` 部分失败（仍是 `ok:true`，失败项列在 `data` 里）；`1` 失败。
+- **不会卡住**：非交互环境（`--json` 或没有终端）不弹浏览器。登录失效时直接报错，需要用户在终端运行一次 `micloud login`。
+- **删除要显式确认**：删除类操作在非交互环境下必须带 `-y`，否则直接报错。先用 `--dry-run` 预览。
 
-```bash
-mi-note-cli login                       # 1. 登录（打开浏览器）
-mi-note-cli list --limit 20             # 2. 列出笔记
-mi-note-cli get <笔记ID>                 # 3. 查看某条笔记
-mi-note-cli create --title "标题" --content "# 正文"   # 4. 创建
-mi-note-cli sync -o ./notes --mode two-way            # 5. 与本地双向同步
-```
-
-## 命令一览
+## 笔记 `micloud note`
 
 | 命令 | 说明 |
 |---|---|
-| `login` / `logout` / `whoami` | 登录 / 清除登录态 / 查看状态 |
-| `list [--folder <id>] [--limit <n>]` | 列出笔记 |
-| `get <id> [--raw]` | 查看笔记（默认转 Markdown，`--raw` 出原始 XML） |
-| `search <keyword> [--limit <n>]` | 搜索标题与摘要 |
-| `create [--title] [--folder] [--content/--file]` | 创建笔记（也可从 stdin 读内容） |
-| `update <id> [--title] [--folder] [--content/--file]` | 更新笔记 |
-| `delete <id> [--purge] [-y]` | 删除（默认回收站，`--purge` 永久） |
-| `move <id> <folderId>` | 移动笔记到文件夹 |
-| `pin <id>` / `unpin <id>` | 置顶 / 取消置顶 |
+| `list` / `get <id>` / `search <关键词>` | 列出、查看（转 Markdown，`--raw` 看原始格式）、搜索 |
+| `create` / `update <id>` | 用 Markdown 写入，内容来自 `--content`、`--file` 或管道 |
+| `delete <id>` / `move <id> <文件夹>` / `pin` / `unpin` | 删除（默认进回收站）、移动、置顶 |
 | `folders` / `folder create\|rename\|delete` | 文件夹管理 |
-| `upload-image <path>` | 上传图片，返回 `minote://image/{fileId}` 引用 |
-| `export [-o <dir>] [-f]` | 单向导出为 Markdown |
-| `sync [-o <dir>] [--mode M] [--dry-run] [-y]` | 双向同步 |
-| `sync init` / `sync status` | 引导设置默认模式 / 查看配置 |
+| `upload-image <路径>` | 上传图片，得到可放进笔记的引用 |
+| `export -o <目录>` | 单向导出为 Markdown，永不修改云端 |
+| `sync -o <目录> --mode <模式>` | 双向同步，`--dry-run` 预览 |
 
-所有命令均支持全局 `--json`，输出 `{ ok, data }` / `{ ok: false, error }`。
+同步模式：`cloud-first` 只下行、`local-first` 只上行、`two-way` 双向自动、`manual`（默认）逐条询问。真冲突（两边都改、一边删一边改）在非交互环境下跳过并报告，不会擅自删数据。云端删除只进回收站。
 
-## 导出 vs 同步
+Markdown 支持标题、列表、复选框、引用、分割线、加粗 / 斜体 / 删除线、链接、行内代码和图片。表格、代码块语言标识等不在支持范围内，重要笔记先小范围试一下。
 
-| | `export` | `sync --mode cloud-first` |
-|---|---|---|
-| 方向 | 仅云→本地 | 可双向（cloud-first 时仅下行） |
-| 状态文件 | 无（增量缓存在全局缓存目录，可删） | 创建 `.mi-note-cli.state.json` 跟踪基线 |
-| 删本地文件 | 不会（云端删了本地保留） | 会（云端为准，删掉云端已不存在的本地文件） |
-| 全量重下 | `--force` | 删 output 目录后重跑 |
-| 适用场景 | 一次性备份/快照 | 持续同步 |
+## 录音 `micloud rec`
 
-`sync` 其他模式：`local-first`（仅上行）、`two-way`（双向自动）、`manual`（默认，逐条询问）。
+`rec` 是 `recording` 的简写。
 
-### 同步模式（`--mode`）
-
-| 模式 | 行为 |
+| 命令 | 说明 |
 |---|---|
-| `cloud-first` | 云端优先：仅下行，冲突以云端为准 |
-| `local-first` | 本地优先：仅上行，冲突以本地为准 |
-| `two-way` | 双向自动：单边改自动同步，真冲突才停下询问 |
-| `manual`（默认） | 交互：任何不一致都列出并逐条询问 |
+| `list` / `search` / `info <id>` / `stats` | 列出、搜索、详情、统计 |
+| `pull -o <目录>` | 增量拉取：拉过的自动跳过，即使你已把文件移走 |
+| `download <id...>` | 按 id 下载；`--stdout` 写到管道 |
+| `url <id>` / `play <id>` | 临时直链（免登录、约 4 小时有效）、在线播放 |
+| `delete` | 移到回收站：按 id、筛选条件，或 `--pulled`（已拉到本地且校验一致的） |
+| `trash` / `trash restore` / `trash purge` | 回收站：列出、恢复、永久删除 |
 
-冲突（双改 / 一端删另一端改）处理：`cloud-first`/`local-first` 已声明优先方，自动解决；`two-way`/`manual` 交互询问，非交互环境跳过并报告，**绝不擅自删数据**。
+筛选参数（list / stats / pull / delete 通用）：`--type recorder,phonecall,fm,app`、`--since 7d`、`--until 2026-07-31`、`-q 关键词`。
 
-用 `sync init` 交互设置默认模式，之后 `sync` 可省略 `--mode`。`sync --dry-run` 只预览不执行。
-
-同步中的数据安全约定：
-
-- **同名笔记不互相覆盖**：同一文件夹下落盘文件名相同的笔记，一条保留原名，其余加 `_<笔记id>` 后缀（`export` 固定由创建最早的保留原名）。
-- **已有文件先认领**：在已有 Markdown 的目录（例如先 `export` 过）上首次 `sync`，落盘位置已有同名文件时视为同一篇笔记：内容一致直接记为已同步，不一致按冲突处理，不会重复上传。
-- **删除只进回收站**：本地删掉文件同步到云端时，云端笔记移到回收站（30 天内可在网页端恢复），不会永久删除。
-- **附件不会被写坏**：本地笔记中的图片引用在上行时还原为原图片；引用本地图片文件会自动上传；图片与文字同行、找不到文件、或包含音频/视频附件时，该条会报错跳过，而不是把附件变成纯文本。
-- **本地子目录对应云端文件夹**：在子目录里新建的文件会建到同名云端文件夹，没有则自动创建；云端标题取文件名。
-- **过期计划不执行**：生成计划后（例如交互询问期间）任一端又被改动，该条跳过并提示重新同步。
-- 交互询问冲突时按 `d` 可查看云端与本地的差异。
-
-## 在笔记中插入图片
+拉到本地、交给转写，再清理云端：
 
 ```bash
-mi-note-cli upload-image ./photo.png    # → ![图片](minote://image/xxxxxx)
-mi-note-cli create --title "带图" --content "看图：
-
-![图片](minote://image/xxxxxx)"
+micloud rec pull -o ./recordings --json | jq -r '.data.pulled[].file'      # 新拉到的文件路径
+micloud rec delete --pulled -o ./recordings --dry-run                       # 预览要清理的
+micloud rec delete --pulled -o ./recordings -y                              # 移到回收站
 ```
 
-工具会自动把 `minote://image/{fileId}` 转换为小米笔记的图片标记。也可以直接引用本地图片文件，写入时会自动上传：
+- **下载安全**：每个文件先写 `.part`，大小和 SHA-1 都与云端一致才落盘；中断后重跑会断点续传；不会覆盖已有的同名文件。
+- **清理安全**：`--pulled` 只删云端内容没变、且拉取目录里的文件仍完好的录音。文件已转移到别处时加 `--allow-moved`。
+- **会同步到手机**：小米云会把删除同步到已登录的设备，手机上的录音也会被删除。回收站按会员等级保留 30~180 天。
 
-```bash
-mi-note-cli create --file ./notes/旅行.md   # 其中的 ![](./photo.jpg) 会自动上传
-```
+文件名默认沿用手机上的录音名，可用 `--template` 自定义，如 `'${YYYY}-${MM}-${DD}_${HH}${mm}[_${contact}]'`，占位符见 `micloud rec pull --help`。
 
-`get` / `sync` 输出的 Markdown 可以直接修改后交给 `update`，其中的图片引用会还原为笔记原有的图片。图片需独占一行；相对路径基于 Markdown 文件所在目录（`--content` / 标准输入时基于当前目录）。
+## 配置
 
-## 数据目录
-
-- **登录态缓存**（macOS）：`~/Library/Caches/mi-note-cli/`（`cookie` + `browser-data/`，可被系统/用户当缓存清理，清了重新 login 即可）
-- **用户配置**：项目根 `.mi-note-cli/config.json`，存同步模式 / 默认同步目录 / 文件名模板等用户偏好。CLI 在哪个目录执行就在该目录的 `.mi-note-cli/` 下读写。可随项目提交，团队共享同一份偏好。
-- **默认 output**：用户配置和 CLI `-o` 都缺省时，落到 `.mi-note-cli/output/`，零配置即可使用。
-- **同步状态**：`<output>/.mi-note-cli.state.json`，存同步基线（各笔记的内容哈希、`filePath`、上次同步云端 modify 等）。跟着 output 目录走，整个 output 可整体迁移仍可继续 sync；不入版控，把 output 加进 `.gitignore` 就一并忽略。
-
-### 自定义同步行为（可选）
-
-在 `.mi-note-cli/config.json` 中可加以下字段：
+项目配置放在当前目录的 `.micloud/config.json`，笔记和录音各一节，都可省略：
 
 ```json
 {
-  "syncMode": "cloud-first",
-  "output": "./mi-notes",
-  "fileNameTemplate": "${YYYY}-${MM}-${DD}_${HH}-${mm}-${ss}[_${title}]"
+  "note": { "output": "notes", "syncMode": "two-way", "fileNameTemplate": "${YYYY}-${MM}-${DD}[_${title}]" },
+  "recording": { "output": "recordings", "fileNameTemplate": "${title}", "concurrency": 3 }
 }
 ```
 
-- `syncMode`：默认同步模式，`sync` 不传 `--mode` 时使用
-- `output`：默认同步/导出目录，`sync` / `export` 不传 `-o` 时使用（相对路径基于项目根）
-- `fileNameTemplate`：控制 `sync` / `export` 落盘时的文件名格式（不含 `.md` 后缀）
+- 命令行的 `-o` 优先于配置里的 `output`。都没有时用 `.micloud/note/`、`.micloud/recording/`。
+- 同步 / 拉取状态记在输出目录里（`.micloud-note.state.json`、`.micloud-recording.json`），目录整体搬走也能继续用。
+- 登录状态在系统缓存目录（macOS 是 `~/Library/Caches/micloud/`），删掉后重新 `login` 即可。
+- 默认输出目录 `.micloud/note/`、`.micloud/recording/` 里是你的笔记和录音，在 git 仓库里使用时把它们加进 `.gitignore`；`config.json` 可以提交。
 
-以上面的模板为例，导出的文件名会长成：
+## 限制
 
-- 有标题的笔记 → `2026-06-06_14-03-00_读书笔记.md`
-- 没起标题的笔记 → `2026-06-06_14-03-00.md`
+- 只支持中国大陆区账号（i.mi.com）。
+- 开启「高级数据保护」（端到端加密）后无法下载录音，会给出明确提示；列表、删除不受影响。
+- 笔记的私密笔记、思维导图等特殊类型只能尽力导出，不支持编辑。
+- 录音不能上传、改名（网页端也没有这些能力）。
 
-**占位符**
+## 从 mi-note-cli 升级
 
-| 占位符 | 含义 |
-|---|---|
-| `${YYYY}` / `${YY}` | 4 位 / 2 位年 |
-| `${MM}` `${DD}` | 月 / 日（零填充） |
-| `${HH}` `${mm}` `${ss}` | 时 / 分 / 秒（24 小时制，零填充） |
-| `${title}` | 笔记真实标题。用户没起标题时为**空字符串** |
-| `${subject}` | 永远非空的笔记称呼：有标题用标题，无标题用内容首行或创建时间 |
-| `${id}` | 笔记 ID |
-
-时间分量基于笔记**创建时间**的本地时区。
-
-**条件段 `[...]`**
-
-方括号内的内容只有当其中所有 `${var}` 都非空时才出现，否则**整段连同分隔符一起消失**。最常见的用法是把可选的标题段包起来：
-
-```
-${YYYY}-${MM}-${DD}[_${title}]
-```
-
-- 有标题 → `2026-06-06_读书笔记`
-- 无标题 → `2026-06-06`
-
-需要字面 `[` `]` 时用 `\[` `\]` 转义。
-
-**默认行为**
-
-未配置 `fileNameTemplate` 时等价于 `${subject}`，永有非空文件名。模板**不支持 `/`**：文件夹结构始终由小米云端 folder 决定，模板只产文件名。
-
-## 已知限制
-
-### 服务端能力
-
-- **回收站列表/恢复**：小米无公开接口，删除后只能在 [i.mi.com](https://i.mi.com) 网页端 30 天内恢复。
-- **私密笔记 / 待办独立类型 / 思维导图**：无稳定写接口，导出尽力转换，不支持编辑。
-- **用户标签**：小米笔记无用户标签体系（API 的 `tag` 是同步版本号）。
-- **Cookie 时效**：短效 `serviceToken` 过期时会自动用本地持久化的长效登录态静默续期，通常无需重新 `login`；仅当长效登录态也失效时才需重新 `login`。
-
-### Markdown 语法支持范围（实验性）
-
-> 项目刚起步，实际使用样本还不多，转换器可能存在已知或未知的漏洞。重要笔记建议先在小范围验证，重要内容做手动备份；遇到不对的转换欢迎反馈。
-
-**已稳定支持**（单元/集成 round-trip 双向往返测试覆盖）：标题（H1–H3）、有序/无序列表（含多级嵌套、跨段续号）、复选框、引用、分割线、加粗 `**bold**` / 斜体 `*italic*` / 删除线 `~~strike~~` / 下划线 `<u>...</u>`、链接、行内代码、段落、图片附件。音频/视频附件只支持导出，含这类附件的笔记在本地修改后无法回写。
-
-**当前不支持**：表格、脚注、定义列表、围栏代码块语言标识、Setext 风格标题（`===` / `---`）、`<u>` 之外的内嵌 HTML。这些语法在转换时会被悄悄丢弃或保留为字面文本。
-
-**双向同步注意**：本工具的 3-way diff 在 Markdown 空间比对，若转换不无损会被识别为「云端单边改了」并触发覆盖。如果你重度依赖不在上面白名单的语法、或观察到本地 markdown 风格在同步后被改写，建议优先用 `manual` / `two-way` 模式（遇到分歧会停下询问），不要默认 `cloud-first`。
-
----
-
-## 贡献与反馈
-
-项目处于早期阶段，遇到转换异常、缺失功能、想加新占位符等任何想法——欢迎 [提 issue](https://github.com/ceynri/mi-note-cli/issues) 或 PR。Repro 越小越好。
-
----
-
-## AI 调用建议
-
-1. 始终加 `--json`，输出可直接解析。
-2. 非交互环境（无 TTY）未登录会立即返回错误而非卡浏览器登录，请先人工 `login` 一次。
-3. 删除等危险操作显式加 `-y`；sync 在非交互下真冲突会跳过不动数据。
-4. `export` / `sync` 部分条目失败时仍输出 `ok: true`，失败项列在 `data.errors`，进程退出码为 2；整体失败才是 `ok: false`、退出码 1。
-
----
+命令前加 `note` 即可，如 `mi-note-cli sync` 改为 `micloud note sync`。登录状态、配置和同步目录都会自动沿用，不需要重新登录或重新同步。详见 [MIGRATION.md](./MIGRATION.md)。
 
 ## 开发
 
 ```bash
-git clone https://github.com/ceynri/mi-note-cli.git
-cd mi-note-cli
 pnpm install
-pnpm build              # 编译
-pnpm dev                # 监听模式编译
-pnpm test               # 单元测试（无需网络）
-pnpm test:integration   # 真实 API 集成测试（需登录，写操作自清理）
+pnpm typecheck && pnpm test        # 类型检查与单元测试（无需网络）
+MICLOUD_INTEGRATION=1 pnpm test:integration   # 真实账号的集成测试（需先登录）
 ```
+
+接口说明：[docs/recording-api.md](./docs/recording-api.md)。问题与建议欢迎提 [issue](https://github.com/ceynri/micloud-cli/issues)。
 
 ## License
 

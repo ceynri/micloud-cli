@@ -1,10 +1,10 @@
 {
-  "name": "mi-note-cli",
-  "version": "0.4.0",
-  "description": "A full-featured CLI for Xiaomi Cloud Notes (i.mi.com) — read, create, update, delete, move, pin notes, manage folders, upload images, bidirectional sync, and export to Markdown. Designed to be AI-friendly.",
+  "name": "micloud-cli",
+  "version": "0.5.0",
+  "description": "AI-friendly CLI for Xiaomi Cloud (i.mi.com): notes (read, write, sync to Markdown) and recordings (list, download, incremental pull, cleanup), with one login.",
   "type": "module",
   "bin": {
-    "mi-note-cli": "dist/cli.js"
+    "micloud": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -19,25 +19,27 @@
     "dev": "tsc --watch",
     "start": "node dist/cli.js",
     "prepublishOnly": "npm run build",
-    "test": "node --import tsx/esm --test tests/*.test.ts",
-    "test:integration": "MI_NOTE_CLI_INTEGRATION=1 node --import tsx/esm --test tests/integration.test.ts"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
+    "test": "node --import tsx/esm --test 'tests/**/*.test.ts'",
+    "test:integration": "MICLOUD_INTEGRATION=1 node --import tsx/esm --test tests/note/integration.test.ts tests/recording/integration.test.ts"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceynri/mi-note-cli.git"
+    "url": "https://github.com/ceynri/micloud-cli.git"
   },
-  "homepage": "https://github.com/ceynri/mi-note-cli#readme",
+  "homepage": "https://github.com/ceynri/micloud-cli#readme",
   "bugs": {
-    "url": "https://github.com/ceynri/mi-note-cli/issues"
+    "url": "https://github.com/ceynri/micloud-cli/issues"
   },
   "keywords": [
     "xiaomi",
     "mi",
+    "micloud",
     "note",
-    "cloud-note",
+    "recorder",
+    "recording",
     "cli",
     "markdown",
-    "export",
     "ai"
   ],
   "license": "MIT",
@@ -46,8 +48,8 @@
     "playwright": "^1.52.0"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "@types/node": "^20.0.0"
+    "typescript": "^5.6.0"
   }
 }

@@ -1,19 +1,30 @@
-import { resolveOutputDir, loadState, loadUserConfig, saveUserConfig, getUserConfigPath, getStatePath, CONFIG_KEYS, DEFAULT_CONCURRENCY, parseConfigValue, type ConfigKey } from "../config.js";
+import { getConfigPath } from "../../core/config.js";
+import { success, logInfo, fail } from "../../core/output.js";
+import { formatTime } from "../../core/utils.js";
+import {
+  resolveOutputDir,
+  loadState,
+  loadRecordingConfig,
+  saveRecordingConfig,
+  getStatePath,
+  CONFIG_KEYS,
+  DEFAULT_CONCURRENCY,
+  parseConfigValue,
+  type ConfigKey,
+} from "../config.js";
 import { DEFAULT_FILE_NAME_TEMPLATE } from "../template.js";
-import { success, logInfo, fail } from "../output.js";
-import { formatTime } from "../utils.js";
-import type { UserConfig } from "../types.js";
+import type { RecordingConfig } from "../types.js";
 
-/** config：查看生效配置与拉取状态 */
+/** recording config：查看生效配置与拉取状态 */
 export async function configShowCommand(opts: { output?: string } = {}): Promise<void> {
   try {
-    const cfg = await loadUserConfig();
+    const cfg = await loadRecordingConfig();
     const outputDir = await resolveOutputDir(opts.output);
     const state = await loadState(outputDir);
     const pulled = Object.values(state.recordings);
     const lastPulledAt = pulled.reduce((max, r) => Math.max(max, r.pulledAt), 0);
     const data = {
-      configFile: getUserConfigPath(),
+      configFile: getConfigPath(),
       config: cfg,
       effective: {
         output: outputDir,
@@ -28,7 +39,7 @@ export async function configShowCommand(opts: { output?: string } = {}): Promise
       },
     };
     success(data, () => {
-      logInfo(`配置文件：${data.configFile}${Object.keys(cfg).length ? "" : "（未创建，使用默认值）"}`);
+      logInfo(`配置文件：${data.configFile}${Object.keys(cfg).length ? "" : "（未配置录音项，使用默认值）"}`);
       logInfo(`拉取目录：${outputDir}${opts.output || cfg.output ? "" : "（默认）"}`);
       logInfo(`文件名模板：${data.effective.fileNameTemplate}`);
       logInfo(`并发下载数：${data.effective.concurrency}`);
@@ -42,27 +53,29 @@ export async function configShowCommand(opts: { output?: string } = {}): Promise
   }
 }
 
-/** config set <key> <value> */
+/** recording config set <key> <value> */
 export async function configSetCommand(key: string, value: string): Promise<void> {
   try {
     const k = parseKey(key);
-    const cfg = await loadUserConfig();
+    const cfg = await loadRecordingConfig();
     (cfg as Record<string, unknown>)[k] = parseConfigValue(k, value);
-    await saveUserConfig(cfg);
-    success({ configFile: getUserConfigPath(), config: cfg }, () => logInfo(`✅ 已设置 ${k} = ${cfg[k as keyof UserConfig]}`));
+    await saveRecordingConfig(cfg);
+    success({ configFile: getConfigPath(), config: cfg }, () =>
+      logInfo(`✅ 已设置 ${k} = ${cfg[k as keyof RecordingConfig]}`),
+    );
   } catch (err) {
     fail(err);
   }
 }
 
-/** config unset <key> */
+/** recording config unset <key> */
 export async function configUnsetCommand(key: string): Promise<void> {
   try {
     const k = parseKey(key);
-    const cfg = await loadUserConfig();
+    const cfg = await loadRecordingConfig();
     delete (cfg as Record<string, unknown>)[k];
-    await saveUserConfig(cfg);
-    success({ configFile: getUserConfigPath(), config: cfg }, () => logInfo(`✅ 已移除 ${k}，恢复默认值`));
+    await saveRecordingConfig(cfg);
+    success({ configFile: getConfigPath(), config: cfg }, () => logInfo(`✅ 已移除 ${k}，恢复默认值`));
   } catch (err) {
     fail(err);
   }

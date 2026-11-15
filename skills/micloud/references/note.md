@@ -1,144 +1,58 @@
----
-name: mi-note-cli
-description: 小米云笔记（i.mi.com）的全功能命令行工具，可读取、创建、更新、删除、移动、置顶笔记，管理文件夹，上传图片，导出与双向同步。当用户提到"小米笔记"、"小米云笔记"、"读写小米笔记"、"创建/更新/删除小米笔记"、"导出/同步小米笔记"、"mi-note-cli"时触发此 skill。
----
+# 笔记：`micloud note`
 
-# mi-note-cli
+以下命令都要加 `--json`；`micloud` 指 `npx -y micloud-cli`。
 
-操作小米云服务（i.mi.com）笔记的全功能 CLI。覆盖读、写、文件夹管理、图片上传、导出与双向同步。
-
-## 核心原则
-
-- **始终加 `--json`**：所有命令支持 `--json`，输出 `{ "ok": true, "data": ... }` 或 `{ "ok": false, "error": "..." }`，便于解析。
-- **非交互安全**：未登录时在非交互环境会立即返回错误，不会卡在浏览器登录。若报"未登录"，需先由用户在终端执行 `mi-note-cli login`。
-- **危险操作显式确认**：`delete` 默认会要求确认；脚本调用时加 `-y`。永久删除需显式 `--purge`（否则只是移到回收站）。
-
-## 使用
-
-通过 `npx` 直接执行，无需提前全局安装：
-
-### 读
+## 读
 
 ```bash
-npx mi-note-cli list --json [--folder <id>] [--limit <n>]   # 列出笔记
-npx mi-note-cli get <id> --json                              # 查看笔记（转 Markdown）
-npx mi-note-cli get <id> --raw                               # 查看原始 XML
-npx mi-note-cli search <关键词> --json [--limit <n>]          # 搜索
-npx mi-note-cli folders --json                               # 列出文件夹
+micloud note list --json [--folder <id>] [--limit <n>]   # 按修改时间倒序
+micloud note get <id> --json                              # 转成 Markdown，data.content
+micloud note get <id> --raw                               # 原始 XML
+micloud note search <关键词> --json [--limit <n>]          # 匹配标题与摘要
+micloud note folders --json
 ```
 
-### 写
+## 写
 
 ```bash
-# 创建：内容可来自 --content、--file 或 stdin
-npx mi-note-cli create --title "标题" --content "# 正文" --json
-echo "正文" | npx mi-note-cli create --title "标题" --json
-npx mi-note-cli create --file ./note.md --folder <folderId> --json
-
-# 更新：仅传需要改的字段；不传 content 则只改元数据
-npx mi-note-cli update <id> --content "新正文" --json
-npx mi-note-cli update <id> --title "新标题" --json
-
-# 删除 / 移动 / 置顶
-npx mi-note-cli delete <id> -y --json            # 移到回收站
-npx mi-note-cli delete <id> --purge -y --json    # 永久删除
-npx mi-note-cli move <id> <folderId> --json
-npx mi-note-cli pin <id> --json
-npx mi-note-cli unpin <id> --json
+micloud note create --title "标题" --content "# 正文" --json   # 内容也可用 --file 或管道
+micloud note update <id> --content "新正文" --json              # 只传要改的字段；不传内容就只改元数据
+micloud note delete <id> -y --json                              # 移到回收站；--purge 永久删除
+micloud note move <id> <folderId> --json
+micloud note pin <id> --json / unpin <id> --json
+micloud note folder create "名称" --json [--parent <id>]
+micloud note folder rename <id> "新名称" --json
+micloud note folder delete <id> -y --json [--purge]
 ```
 
-### 文件夹
+内容是 Markdown：标题、列表、复选框、引用、分割线、加粗 / 斜体 / 删除线、链接、行内代码、图片。
+
+图片：`upload-image <路径> --json` 返回 `data.markdown`（`![图片](minote://image/<fileId>)`），放进内容即可；也可以直接写本地路径 `![](./photo.jpg)`，写入时自动上传（相对路径基于 Markdown 文件所在目录）。`get` / `sync` 输出里的图片引用可以原样交给 `update`。图片需独占一行；有无法回写的附件（找不到的图片、音频 / 视频）时命令会报错，不会把附件写成纯文本。
+
+## 导出与同步
 
 ```bash
-npx mi-note-cli folder create "名称" --json [--parent <id>]
-npx mi-note-cli folder rename <id> "新名称" --json
-npx mi-note-cli folder delete <id> -y --json [--purge]
+micloud note export -o <目录> --json             # 单向导出为 Markdown，永不修改云端；-f 全量重来
+micloud note sync -o <目录> --dry-run --json     # 先预览
+micloud note sync -o <目录> --mode two-way --json
+micloud note sync status --json                  # 配置与同步状态
 ```
 
-### 图片
+- `export` 不建状态文件、不删本地文件，适合备份快照；要持续同步用 `sync`。
+- 同步模式：`cloud-first` 只下行、`local-first` 只上行、`two-way` 双向自动、`manual`（默认）逐条询问。非交互下真冲突跳过并列在 `data.conflicts`，失败项在 `data.errors`，每次同步后都要检查并报告。
+- 同步删除云端笔记只移到回收站。本地新建文件的云端标题取文件名，子目录对应同名云端文件夹。
+- 同名笔记落盘时，除一条外其余文件名带 `_<id>` 后缀；按 id 定位笔记以 `get` 为准，不要凭文件名推断。
 
-```bash
-# 1. 上传图片，得到 fileId 与可嵌入的 Markdown
-npx mi-note-cli upload-image ./photo.png --json
-# 返回 data.markdown: ![图片](minote://image/xxxxxx)
+## 删除前
 
-# 2. 把该 Markdown 放进 create/update 的 --content 中即可
-```
+1. 用 `get <id> --json` 取云端内容，确认是要删的笔记；本地文件名与记录不一致时尤其不能跳过。
+2. 向用户展示 id、标题、内容摘要，得到明确同意后再加 `-y`。`--purge` 需要再确认一次。
 
-`get` / `sync` 输出里的图片引用可以原样保留交给 `update`，会还原为原图片；引用本地图片文件（相对路径基于 Markdown 文件所在目录）会自动上传，无需先调 `upload-image`。图片需独占一行。内容里有无法回写的附件（找不到的图片文件、音频/视频）时命令会报错，不会把附件写成纯文本。
+## 配置
 
-### 导出（单向云→本地）
+`.micloud/config.json` 的 `note` 节：`output`（默认同步 / 导出目录，`-o` 优先，缺省 `.micloud/note/`）、`syncMode`（默认同步模式）、`fileNameTemplate`（文件名模板，不含 `.md`；占位符 `${YYYY}` `${MM}` `${DD}` `${HH}` `${mm}` `${ss}`（创建时间）、`${title}`（未起标题时为空）、`${subject}`（永远非空）、`${id}`；`[...]` 条件段，段内变量都非空才输出）。
 
-```bash
-npx mi-note-cli export -o <dir> --json   # 导出为 Markdown（含附件），永不修改云端
-npx mi-note-cli export -f -o <dir>       # 强制重新导出
-```
+## 限制
 
-export 只读云端、写本地，适合"只想备份"。本地内容相同则跳过；不回写云端。
-
-与 `sync --mode cloud-first` 的关键区别：export **无状态文件**（不创建 `.mi-note-cli.state.json`）、**不删本地文件**（云端删了本地保留）、支持 `--force` 全量重下。需要持续同步用 `sync`，需要一次性快照用 `export`。
-
-### 同步（双向）
-
-```bash
-npx mi-note-cli sync -o <dir> --mode <mode> --json   # 双向同步
-npx mi-note-cli sync -o <dir> --dry-run              # 只预览计划不执行
-npx mi-note-cli sync init                            # 交互设默认模式
-npx mi-note-cli sync status --json                   # 查看配置与各目录状态
-```
-
-模式 `--mode`：
-- `cloud-first` 云端优先（仅下行，冲突以云端为准）
-- `local-first` 本地优先（仅上行，冲突以本地为准）
-- `two-way` 双向自动（真冲突才停）
-- `manual`（默认）任何不一致都逐条询问
-
-基于「上次同步基线 / 云端现状 / 本地现状」三方对比。冲突时：有优先方的模式自动解决；`two-way`/`manual` 在非交互环境**跳过并报告，绝不擅自删数据**（需交互或 `-y`）。
-
-- 同步删除云端笔记只移到回收站，不会永久删除。
-- 本地新建笔记的云端标题取文件名；文件所在子目录对应同名云端文件夹。
-- 同名笔记落盘时，除一条外其余文件名带 `_<笔记id>` 后缀；按 id 定位笔记时以状态文件和 `get` 为准，不要凭文件名推断。
-- 部分条目失败时仍返回 `ok: true`，失败项在 `data.errors`，退出码为 2。每次同步后都要检查 `data.errors` 和 `data.conflicts`，向用户报告。
-
-遇到其他场景，优先 `npx mi-note-cli <command> --help` 查阅选项（--help 含输出约定、模式说明、示例）。
-
-## 内容格式
-
-笔记内容以 Markdown 形式读写，工具自动在 Markdown 与小米自有 XML 间双向转换。支持：标题（#/##/###）、有序/无序列表、复选框（`- [ ]` / `- [x]`）、引用（`>`）、分割线（`---`）、加粗/斜体/删除线、图片（`minote://image/{fileId}`）。
-
-## Agent 执行删除的约束
-
-执行 `delete` / `folder delete` / 会删除数据的 `sync` 前，**必须**遵循以下流程：
-
-1. **身份确认**：通过 `get <id> --json` 获取云端笔记内容，与本地文件做比对，确认是目标待删除笔记。尤其当本地文件名与状态文件记录不一致时，**禁止跳过此步骤**。
-2. **展示确认**：除非用户明确表示不需要，否则应向用户展示待删除对象的关键信息（ID、标题、内容摘要），获得明确确认后再执行。
-3. **执行删除**：确认无误后加 `-y` 执行。永久删除（`--purge`）需二次确认。
-
-**绝对禁止**：仅凭 subject 相似或时间接近就推断是同一篇笔记并直接删除。
-
-## 用户配置
-
-项目根 `.mi-note-cli/config.json`，可入版控、团队共享。所有字段均可选，缺省使用内置默认值。
-
-- `syncMode`：默认同步模式，默认同步模式，模式含义见上方「同步（双向）」
-- `output`：默认输出目录，CLI `-o` 优先；都缺省时落到 `.mi-note-cli/output/`
-- `fileNameTemplate`：同步落盘文件名模板（不含 `.md` 后缀）。缺省等价 `${subject}`
-  - 占位符：`${YYYY}` `${YY}` `${MM}` `${DD}` `${HH}` `${mm}` `${ss}`（createDate 本地时区分量）、`${title}`（真实标题，未填即空）、`${subject}`（带兜底，永远非空）、`${id}`
-  - 条件段 `[...]`：方括号内所有 `${var}` 都非空才渲染，否则整块丢弃。例：`${YYYY}-${MM}-${DD}[_${title}]` → 有标题 `2026-06-06_工作`，无标题 `2026-06-06`
-  - 字面 `[` `]` 用 `\[` `\]` 转义
-
-## 运行时数据
-
-- 登录态缓存：`~/Library/Caches/mi-note-cli/`（`cookie` + `browser-data/`）
-- 同步状态：`<output>/.mi-note-cli.state.json`，存同步基线（笔记内容哈希、`filePath`、上次同步云端 modify）；自动生成、跟 output 1:1 绑定、不入版控
-
-## 限制（客观条件，无法实现）
-
-- 回收站列表 / 恢复：无公开接口，删除后只能在 i.mi.com 网页端 30 天内恢复
-- 私密笔记 / 待办独立类型 / 思维导图：无稳定写接口，导出尽力转换，不支持编辑
-- 用户标签：小米笔记无用户标签体系
-- Cookie：短效 serviceToken 过期会自动用持久化的长效登录态静默续期，通常无需重新 login；仅长效登录态也失效时才需重新 `login`
-
----
-
-> ⚠️ 如果 CLI 实际行为与本文档有明显差异，说明 skill 版本已落后于 CLI 更新。执行 `npx skills update mi-note-cli` 更新到最新版本，或先通过 `npx mi-note-cli <command> --help` 确认当前行为。
+- 不支持回收站列表 / 恢复：删除后只能在 i.mi.com 网页端恢复（30 天内）。
+- 私密笔记、思维导图等特殊类型只能尽力导出，不支持编辑；没有用户标签。

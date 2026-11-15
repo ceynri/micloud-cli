@@ -23,17 +23,6 @@ export interface RawRecording {
   extraInfo?: string;
 }
 
-/** i.mi.com 通用响应信封：code 为 0（result 为 "ok"）表示成功 */
-export interface ApiEnvelope<T> {
-  result?: string;
-  code?: number;
-  retriable?: boolean;
-  description?: string;
-  reason?: string;
-  ts?: number;
-  data?: T;
-}
-
 export interface RecordingListData {
   list?: RawRecording[];
 }
@@ -56,20 +45,6 @@ export interface BlockStorageData {
     secure_key?: string;
   };
   encryptInfo?: unknown;
-}
-
-export interface QuotaData {
-  /** 会员等级：None / FirstLevel / SecondLevel / ThirdLevel */
-  level?: string;
-  totalQuota?: number;
-  used?: number;
-  usedDetail?: Record<string, { size?: number; text?: string }>;
-  quotaStatus?: string;
-}
-
-export interface ProfileData {
-  nickname?: string;
-  icon?: string;
 }
 
 // ============ 领域模型 ============
@@ -124,24 +99,15 @@ export interface TrashedRecording extends Recording {
   expiresAt?: number;
 }
 
-// ============ 认证 ============
-
-/** 从 cookie 解析出的认证信息 */
-export interface AuthInfo {
-  cookie: string;
-  serviceToken: string;
-  userId: string;
-}
-
-// ============ 用户配置与拉取状态 ============
+// ============ 配置与拉取状态 ============
 
 /**
- * 用户配置（项目根 `.mi-recording-cli/config.json`），所有字段可选。
- * - output：默认拉取目录（CLI `-o` 优先；都缺省时为 `.mi-recording-cli/output/`）
+ * 录音配置（项目配置 `.micloud/config.json` 的 `recording` 节），所有字段可选。
+ * - output：默认拉取目录（命令行 `-o` 优先；都缺省时为 `.micloud/recording/`）
  * - fileNameTemplate：落盘文件名模板（不含扩展名，可用 `/` 分子目录），见 template.ts
  * - concurrency：pull / download 的并发下载数
  */
-export interface UserConfig {
+export interface RecordingConfig {
   output?: string;
   fileNameTemplate?: string;
   concurrency?: number;
@@ -160,7 +126,7 @@ export interface PulledRecord {
 }
 
 /**
- * 拉取状态（`<output>/.mi-recording-cli.state.json`），自动维护、跟拉取目录 1:1 绑定。
+ * 拉取状态（`<拉取目录>/.micloud-recording.json`），自动维护、跟拉取目录 1:1 绑定。
  * 记录过的录音之后的 pull 都会跳过，即使本地文件已被移走（`--force` 例外）。
  */
 export interface PullState {

@@ -1,6 +1,6 @@
 import { getClient, parseLimit } from "./shared.js";
 import { deriveTitle, xmlToMarkdown } from "../converter.js";
-import { success, logInfo, fail } from "../output.js";
+import { success, logInfo, fail } from "../../core/output.js";
 import type { NoteListItem, RawNoteEntry } from "../types.js";
 
 interface SearchOptions {

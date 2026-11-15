@@ -1,5 +1,5 @@
 import { getClient } from "./shared.js";
-import { success, logInfo, fail } from "../output.js";
+import { success, logInfo, fail } from "../../core/output.js";
 import type { WriteNoteEntry } from "../types.js";
 
 /**

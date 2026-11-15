@@ -202,15 +202,6 @@ export interface NoteListItem {
   folderId: string;
 }
 
-// ============ 配置与认证 ============
-
-/** 从 cookie 解析出的认证信息 */
-export interface AuthInfo {
-  cookie: string;
-  serviceToken: string;
-  userId: string;
-}
-
 // ============ 同步状态与配置 ============
 
 /** 同步模式 */
@@ -239,11 +230,11 @@ export interface SyncNoteState {
 }
 
 /**
- * 用户配置（项目根 `.mi-note-cli/config.json`）。
+ * 笔记配置（项目配置 `.micloud/config.json` 的 `note` 节）。
  *
  * 用户手写、可入版控、可团队共享。所有字段均可选；缺省时各命令使用内置默认值。
  * - syncMode：默认同步模式（缺省回落到 manual）
- * - output：默认同步/导出目录（CLI `-o` 优先；都缺省时落到 `<root>/.mi-note-cli/output/`）
+ * - output：默认同步/导出目录（命令行 `-o` 优先；都缺省时落到 `<root>/.micloud/note/`）
  * - fileNameTemplate：见下方文档
  */
 export interface UserConfig {
@@ -268,7 +259,7 @@ export interface UserConfig {
 }
 
 /**
- * 同步状态（output 目录内 `.mi-note-cli.state.json`）。
+ * 同步状态（output 目录内 `.micloud-note.state.json`；旧版的 `.mi-note-cli.state.json` 仍可读取）。
  *
  * 工具自动生成、与具体 output 目录 1:1 绑定、不入版控。换 output 各自独立。
  * - lastSync：上次同步时间戳

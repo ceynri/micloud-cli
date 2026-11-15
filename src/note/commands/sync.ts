@@ -22,7 +22,7 @@ import {
   fail,
   prompt,
   EXIT_PARTIAL_FAILURE,
-} from "../output.js";
+} from "../../core/output.js";
 import { createInterface } from "node:readline";
 import { actionForSide } from "../sync-diff.js";
 import { diffLines, formatDiff } from "../text-diff.js";
@@ -151,12 +151,12 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
 }
 
 /** sync init：交互引导设置项目默认模式 */
-export async function syncInitCommand(_opts: { output?: string }): Promise<void> {
+export async function syncInitCommand(): Promise<void> {
   try {
     if (isJsonMode() || !process.stdout.isTTY) {
       throw new Error("init 需在交互式终端运行");
     }
-    logInfo("🧭 mi-note-cli 同步初始化\n");
+    logInfo("🧭 笔记同步初始化\n");
     logInfo("可选同步模式：");
     ALL_MODES.forEach((m, i) => {
       logInfo(`  ${i + 1}) ${m} — ${MODE_DESC[m]}`);
@@ -177,7 +177,7 @@ export async function syncInitCommand(_opts: { output?: string }): Promise<void>
     success({ mode, configPath: getUserConfigPath() }, () => {
       logInfo(`\n✅ 已将项目默认同步模式设为：${mode}`);
       logInfo(`   配置文件：${getUserConfigPath()}`);
-      logInfo(`   提示：可在该文件中加 "output" 字段设置默认同步目录。`);
+      logInfo(`   提示：可在该文件的 note 节中加 "output" 字段设置默认同步目录。`);
     });
   } catch (err) {
     fail(err);

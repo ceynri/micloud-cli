@@ -6,7 +6,6 @@ import {
   isLocalImageTarget,
   assertAttachmentsResolvable,
 } from "./converter.js";
-import { inferImageMimeType } from "./utils.js";
 import type { NoteSetting, RawNoteFile } from "./types.js";
 
 /**
@@ -95,4 +94,16 @@ async function findLocalImage(
     }
   }
   return undefined;
+}
+
+/** 推断图片 MIME 类型 */
+export function inferImageMimeType(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".bmp")) return "image/bmp";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  return "application/octet-stream";
 }

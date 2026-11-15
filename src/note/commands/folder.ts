@@ -1,5 +1,5 @@
 import { getClient } from "./shared.js";
-import { isJsonMode, success, logInfo, fail, confirm } from "../output.js";
+import { success, logInfo, fail, assertCanConfirm, confirmDestructive } from "../../core/output.js";
 
 import type { WriteFolderEntry, RawFolderEntry } from "../types.js";
 
@@ -87,6 +87,7 @@ export async function folderDeleteCommand(
   opts: { purge?: boolean; yes?: boolean },
 ): Promise<void> {
   try {
+    assertCanConfirm(opts.yes);
     const client = await getClient();
     const { folders } = await client.getAllNotes(200);
     process.stderr.write("\r");
@@ -94,11 +95,12 @@ export async function folderDeleteCommand(
     if (!folder) throw new Error(`未找到文件夹：${id}`);
     if (!folder.tag) throw new Error("文件夹缺少 tag 字段，无法删除");
 
-    if (!opts.yes && !isJsonMode()) {
+    if (!opts.yes) {
       const action = opts.purge ? "永久删除" : "删除";
       logInfo(`📁 文件夹: ${folder.subject ?? ""} [${id}]`);
-      const ok = await confirm(
-        `确认要${action}该文件夹吗？（文件夹内笔记也会一并处理）(y/N) `,
+      const ok = await confirmDestructive(
+        `确认要${action}该文件夹吗？（文件夹内笔记也会一并处理）`,
+        opts.yes,
       );
       if (!ok) {
         logInfo("已取消");

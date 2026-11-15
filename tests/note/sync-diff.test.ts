@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classify, decide } from "../src/sync-diff.ts";
-import type { Scenario, SyncAction } from "../src/sync-diff.ts";
-import { ALL_MODES } from "../src/config.ts";
-import type { SyncMode } from "../src/types.ts";
+import { classify, decide } from "../../src/note/sync-diff.ts";
+import type { Scenario, SyncAction } from "../../src/note/sync-diff.ts";
+import { ALL_MODES } from "../../src/note/config.ts";
+import type { SyncMode } from "../../src/note/types.ts";
 
 // ============ classify：3-way 场景判定 ============
 

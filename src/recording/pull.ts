@@ -1,7 +1,9 @@
 import { stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
-import { isFatalError } from "./client.js";
-import { getStatePath, loadState, lockOutputDir, saveState } from "./config.js";
+import { isFatalError } from "../core/http.js";
+import { logInfo } from "../core/output.js";
+import { formatBytes } from "../core/utils.js";
+import { hasState, loadState, lockOutputDir, saveState } from "./config.js";
 import { fetchRecording, matchesLocalFile, type DownloadSource } from "./download.js";
 import { TransferProgress } from "./progress.js";
 import {
@@ -11,8 +13,6 @@ import {
   type RecordingFilter,
 } from "./recording.js";
 import { pathKey, recordingRelPath } from "./template.js";
-import { logInfo } from "./output.js";
-import { fileExists, formatBytes } from "./utils.js";
 import type { PullState, PulledRecord, RawRecording, Recording } from "./types.js";
 
 /** pull / download 需要的客户端能力（便于测试替身） */
@@ -378,7 +378,7 @@ async function runPull(client: TransferClient, opts: PullOptions): Promise<PullR
 
 /** 读取拉取目录的状态；状态文件不存在时返回 null */
 export async function loadExistingState(outputDir: string): Promise<PullState | null> {
-  return (await fileExists(getStatePath(outputDir))) ? await loadState(outputDir) : null;
+  return (await hasState(outputDir)) ? await loadState(outputDir) : null;
 }
 
 export interface DownloadOptions {

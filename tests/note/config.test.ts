@@ -1,9 +1,9 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileExists } from "../src/utils.ts";
+import { fileExists } from "../../src/core/utils.ts";
 import {
   getProjectRoot,
   getUserConfigPath,
@@ -19,13 +19,13 @@ import {
   setOutput,
   toOutputRel,
   toOutputAbs,
-} from "../src/config.ts";
-import type { SyncState } from "../src/types.ts";
+} from "../../src/note/config.ts";
+import type { SyncState } from "../../src/note/types.ts";
 
 /**
  * src/config.ts 纯逻辑单元测试。
  *
- * 通过 MI_NOTE_CLI_CONFIG_DIR 环境变量把项目根隔离到临时目录，
+ * 通过 MICLOUD_CONFIG_DIR 环境变量把项目根隔离到临时目录，
  * 不触碰真实工作区与用户配置。零网络依赖。
  */
 
@@ -33,40 +33,34 @@ let projectRoot: string;
 let prevEnv: string | undefined;
 
 beforeEach(async () => {
-  projectRoot = await mkdtemp(join(tmpdir(), "mi-note-cli-cfgtest-"));
-  prevEnv = process.env.MI_NOTE_CLI_CONFIG_DIR;
-  process.env.MI_NOTE_CLI_CONFIG_DIR = projectRoot;
+  projectRoot = await mkdtemp(join(tmpdir(), "micloud-cfgtest-"));
+  prevEnv = process.env.MICLOUD_CONFIG_DIR;
+  process.env.MICLOUD_CONFIG_DIR = projectRoot;
 });
 
 afterEach(async () => {
-  if (prevEnv === undefined) delete process.env.MI_NOTE_CLI_CONFIG_DIR;
-  else process.env.MI_NOTE_CLI_CONFIG_DIR = prevEnv;
+  if (prevEnv === undefined) delete process.env.MICLOUD_CONFIG_DIR;
+  else process.env.MICLOUD_CONFIG_DIR = prevEnv;
   await rm(projectRoot, { recursive: true, force: true });
 });
 
 // ============ 路径解析 ============
 
-test("getProjectRoot 读取 MI_NOTE_CLI_CONFIG_DIR 环境变量", () => {
+test("getProjectRoot 读取 MICLOUD_CONFIG_DIR 环境变量", () => {
   assert.equal(getProjectRoot(), projectRoot);
 });
 
-test("getUserConfigPath 落在 <root>/.mi-note-cli/config.json", () => {
-  assert.equal(
-    getUserConfigPath(),
-    join(projectRoot, ".mi-note-cli", "config.json"),
-  );
+test("getUserConfigPath 落在 <root>/.micloud/config.json", () => {
+  assert.equal(getUserConfigPath(), join(projectRoot, ".micloud", "config.json"));
 });
 
-test("getDefaultOutputDir 落在 <root>/.mi-note-cli/output", () => {
-  assert.equal(
-    getDefaultOutputDir(),
-    join(projectRoot, ".mi-note-cli", "output"),
-  );
+test("getDefaultOutputDir 落在 <root>/.micloud/note", () => {
+  assert.equal(getDefaultOutputDir(), join(projectRoot, ".micloud", "note"));
 });
 
 test("getStatePath 在传入 output 目录内", () => {
   const out = join(projectRoot, "anywhere");
-  assert.equal(getStatePath(out), join(out, ".mi-note-cli.state.json"));
+  assert.equal(getStatePath(out), join(out, ".micloud-note.state.json"));
 });
 
 test("toOutputRel / toOutputAbs 互逆", () => {
@@ -114,11 +108,49 @@ test("saveUserConfig → loadUserConfig 往返保留所有字段", async () => {
   assert.equal(cfg.fileNameTemplate, "${YYYY}-${MM}-${DD}");
 });
 
-test("saveUserConfig 自动建出 .mi-note-cli/ 父目录", async () => {
+test("saveUserConfig 写进 .micloud/config.json 的 note 节，不动其他服务的配置", async () => {
+  await mkdir(join(projectRoot, ".micloud"), { recursive: true });
+  await writeFile(getUserConfigPath(), JSON.stringify({ recording: { output: "rec" } }), "utf-8");
   await saveUserConfig({ syncMode: "manual" });
-  assert.ok(await fileExists(getUserConfigPath()), "config.json 应已落盘");
-  const raw = await readFile(getUserConfigPath(), "utf-8");
-  assert.match(raw, /"syncMode": "manual"/);
+  const raw = JSON.parse(await readFile(getUserConfigPath(), "utf-8"));
+  assert.deepEqual(raw, { recording: { output: "rec" }, note: { syncMode: "manual" } });
+});
+
+test("兼容旧版：没有 note 节时读 .mi-note-cli/config.json", async () => {
+  await mkdir(join(projectRoot, ".mi-note-cli"), { recursive: true });
+  await writeFile(
+    join(projectRoot, ".mi-note-cli", "config.json"),
+    JSON.stringify({ syncMode: "two-way", output: "inbox/mi-notes", fileNameTemplate: "${id}" }),
+    "utf-8",
+  );
+  const cfg = await loadUserConfig();
+  assert.equal(cfg.syncMode, "two-way");
+  assert.equal(cfg.output, "inbox/mi-notes");
+  assert.equal(await resolveOutputDir(), join(projectRoot, "inbox", "mi-notes"));
+
+  // 写入后迁到新位置，旧文件原样保留
+  await setSyncMode("cloud-first");
+  const raw = JSON.parse(await readFile(getUserConfigPath(), "utf-8"));
+  assert.deepEqual(raw.note, { syncMode: "cloud-first", output: "inbox/mi-notes", fileNameTemplate: "${id}" });
+  assert.ok(await fileExists(join(projectRoot, ".mi-note-cli", "config.json")));
+});
+
+test("兼容旧版：没配 output 时沿用已存在的 .mi-note-cli/output/", async () => {
+  await mkdir(join(projectRoot, ".mi-note-cli", "output"), { recursive: true });
+  assert.equal(await resolveOutputDir(), join(projectRoot, ".mi-note-cli", "output"));
+});
+
+test("兼容旧版：读取 .mi-note-cli.state.json；保存后改用新文件名并移除旧文件", async () => {
+  const out = join(projectRoot, "legacy-out");
+  await mkdir(out, { recursive: true });
+  const legacy: SyncState = { lastSync: 5, notes: { "1": { id: "1", subject: "a", filePath: "a.md" } }, folders: {} };
+  await writeFile(join(out, ".mi-note-cli.state.json"), JSON.stringify(legacy), "utf-8");
+  const loaded = await loadState(out);
+  assert.equal(loaded.lastSync, 5);
+  assert.deepEqual(Object.keys(loaded.notes), ["1"]);
+  await saveState(out, loaded);
+  assert.ok(await fileExists(join(out, ".micloud-note.state.json")));
+  assert.ok(!(await fileExists(join(out, ".mi-note-cli.state.json"))));
 });
 
 // ============ SyncState 读写 ============
@@ -154,22 +186,16 @@ test("saveState → loadState 往返保留 notes/folders", async () => {
   assert.deepEqual(loaded.notes, original.notes);
 });
 
-test("saveState 写到 <output>/.mi-note-cli.state.json，不写到项目根", async () => {
+test("saveState 写到 <output>/.micloud-note.state.json，不写到项目根", async () => {
   const out = join(projectRoot, "out2");
   await saveState(out, { lastSync: 1, notes: {}, folders: {} });
-  assert.ok(
-    await fileExists(join(out, ".mi-note-cli.state.json")),
-    "state 文件应在 output 目录内",
-  );
-  assert.ok(
-    !(await fileExists(join(projectRoot, ".mi-note-cli.state.json"))),
-    "state 不应写到项目根",
-  );
+  assert.ok(await fileExists(join(out, ".micloud-note.state.json")), "state 文件应在 output 目录内");
+  assert.ok(!(await fileExists(join(projectRoot, ".micloud-note.state.json"))), "state 不应写到项目根");
 });
 
 // ============ 优先级解析 ============
 
-test("resolveOutputDir 优先级：CLI > UserConfig.output > 默认 .mi-note-cli/output/", async () => {
+test("resolveOutputDir 优先级：CLI > 配置 output > 默认 .micloud/note/", async () => {
   // 1) 全空 → 默认（基于项目根）
   assert.equal(await resolveOutputDir(), getDefaultOutputDir());
 

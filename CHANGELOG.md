@@ -4,7 +4,26 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循 [Semantic Versioning](https://semver.org/)。
 
-## [Unreleased] [[compare]](https://github.com/ceynri/mi-note-cli/compare/v0.4.0...HEAD)
+## [Unreleased] [[compare]](https://github.com/ceynri/micloud-cli/compare/v0.4.0...HEAD)
+
+mi-note-cli 更名为 micloud（npm 包 `micloud-cli`），并加入小米云录音。升级说明见 [MIGRATION.md](./MIGRATION.md)。
+
+### Added
+
+- 录音 `micloud rec`：列出、搜索、详情、统计；增量拉取到本地（断点续传、SHA-1 校验、文件名模板）；按 id 下载或输出到管道、临时直链、在线播放；删除到回收站（含「已拉取且校验一致」的录音），回收站列出、恢复、永久删除
+- `whoami` 显示账号昵称、云空间用量与会员等级
+
+### Changed
+
+- **破坏性**：命令改为 `micloud`，笔记命令放在 `micloud note` 下，如 `mi-note-cli sync` 改为 `micloud note sync`；登录、登出、`whoami` 仍在顶层，笔记和录音共用
+- **破坏性**：项目配置改为 `.micloud/config.json`，按服务分节；同步状态文件改名为 `.micloud-note.state.json`；默认输出目录改为 `.micloud/note/`。旧的登录状态、配置、状态文件与默认目录会自动沿用
+- **破坏性**：环境变量改为 `MICLOUD_CONFIG_DIR`、`MICLOUD_INTEGRATION`
+- **破坏性**：`--json` 或无终端时删除笔记 / 文件夹必须带 `-y`，否则直接报错（以前会不经确认直接删除），与录音的删除一致
+- 笔记请求增加 30 秒超时，只读请求遇网络错误、5xx 或非 JSON 响应时自动重试
+
+### Fixed
+
+- `sync status -o <目录>` 的 `-o` 被忽略，总是显示默认目录的状态
 
 ## [0.4.0] - 2026-10-02 [[compare]](https://github.com/ceynri/mi-note-cli/compare/v0.3.1...v0.4.0)
 

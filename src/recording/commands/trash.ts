@@ -1,9 +1,8 @@
 import { getClient } from "./shared.js";
 import { summarize } from "./list.js";
-import { CODE_SPACE_FULL, MiApiError, isFatalError } from "../client.js";
-import { errorMessage, type FailedItem } from "../pull.js";
-import { TRASH_RETENTION_DAYS, parseTrashedRecording, shortTypeName } from "../recording.js";
-import { success, logInfo, fail, isJsonMode, confirmDestructive, finishBatch } from "../output.js";
+import { TRASH_RETENTION_DAYS } from "../../core/account.js";
+import { MiApiError, isFatalError } from "../../core/http.js";
+import { success, logInfo, fail, isJsonMode, confirmDestructive, finishBatch } from "../../core/output.js";
 import {
   formatBytes,
   formatDuration,
@@ -12,8 +11,10 @@ import {
   padStartDisplay,
   randomDelay,
   truncateDisplay,
-} from "../utils.js";
-import type { MiRecordingClient } from "../client.js";
+} from "../../core/utils.js";
+import { CODE_SPACE_FULL, type MiRecordingClient } from "../client.js";
+import { errorMessage, type FailedItem } from "../pull.js";
+import { parseTrashedRecording, shortTypeName } from "../recording.js";
 import type { TrashedRecording } from "../types.js";
 
 /** 回收站列表（按删除时间倒序），附带按会员等级推算的自动清除时间 */

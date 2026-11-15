@@ -1,6 +1,6 @@
 import { getClient } from "./shared.js";
 import { parseNoteEntry } from "../converter.js";
-import { isJsonMode, success, logInfo, fail, confirm } from "../output.js";
+import { success, logInfo, fail, assertCanConfirm, confirmDestructive } from "../../core/output.js";
 
 
 interface DeleteOptions {
@@ -14,6 +14,7 @@ export async function deleteCommand(
   opts: DeleteOptions,
 ): Promise<void> {
   try {
+    assertCanConfirm(opts.yes);
     const client = await getClient();
     const entry = await client.getNote(id);
     const note = parseNoteEntry(entry);
@@ -22,11 +23,10 @@ export async function deleteCommand(
       throw new Error("笔记缺少 tag 字段，无法删除");
     }
 
-    if (!opts.yes && !isJsonMode()) {
+    if (!opts.yes) {
       const action = opts.purge ? "永久删除" : "移到回收站";
       logInfo(`📝 笔记: ${note.subject || "(无标题)"} [${id}]`);
-      const ok = await confirm(`确认要${action}该笔记吗？(y/N) `);
-      if (!ok) {
+      if (!(await confirmDestructive(`确认要${action}该笔记吗？`, opts.yes))) {
         logInfo("已取消");
         return;
       }

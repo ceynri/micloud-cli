@@ -6,15 +6,15 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
-import { downloadToFile, downloadToStream, fetchRecording, IntegrityError, urlExpiresAt, E2EE_MESSAGE } from "../src/download.ts";
-import { downloadRecordings, pullRecordings, planTargets, selectPulled, type TransferClient } from "../src/pull.ts";
-import { lockOutputDir, loadState } from "../src/config.ts";
-import { selectTrashTargets } from "../src/commands/trash.ts";
-import { parseRecording, parseTrashedRecording } from "../src/recording.ts";
-import { sanitizeFileName } from "../src/utils.ts";
+import { downloadToFile, downloadToStream, fetchRecording, IntegrityError, urlExpiresAt, E2EE_MESSAGE } from "../../src/recording/download.ts";
+import { downloadRecordings, pullRecordings, planTargets, selectPulled, type TransferClient } from "../../src/recording/pull.ts";
+import { lockOutputDir, loadState } from "../../src/recording/config.ts";
+import { selectTrashTargets } from "../../src/recording/commands/trash.ts";
+import { parseRecording, parseTrashedRecording } from "../../src/recording/recording.ts";
+import { sanitizeFileName } from "../../src/core/utils.ts";
 import { PassThrough } from "node:stream";
-import { AuthExpiredError } from "../src/client.ts";
-import type { RawRecording } from "../src/types.ts";
+import { AuthExpiredError } from "../../src/core/http.ts";
+import type { RawRecording } from "../../src/recording/types.ts";
 
 const sha1 = (buf: Buffer): string => createHash("sha1").update(buf).digest("hex");
 
@@ -388,21 +388,21 @@ test("pull：同一拉取目录不能同时运行两个 pull；持锁进程已�
   const { cloud } = await setupCloud(t, [REC_A]);
   const dir = await tempDir(t);
   const release = await lockOutputDir(dir);
-  await assert.rejects(() => pullRecordings(cloud, pullOpts(dir)), /正被另一个进程使用/);
-  await assert.rejects(() => downloadRecordings(cloud, [REC_A.id], downloadOpts(dir)), /正被另一个进程使用/, "download 同样独占目录");
+  await assert.rejects(() => pullRecordings(cloud, pullOpts(dir)), /正被另一个 micloud 进程使用/);
+  await assert.rejects(() => downloadRecordings(cloud, [REC_A.id], downloadOpts(dir)), /正被另一个 micloud 进程使用/, "download 同样独占目录");
   await release();
 
   // 残留的锁（pid 已不存在）
-  await writeFile(join(dir, ".mi-recording-cli.lock"), JSON.stringify({ pid: 2 ** 22 + 12345, host: hostname() }));
+  await writeFile(join(dir, ".micloud.lock"), JSON.stringify({ pid: 2 ** 22 + 12345, host: hostname() }));
   const result = await pullRecordings(cloud, pullOpts(dir));
   assert.equal(result.pulled.length, 1);
 });
 
 test("lockOutputDir：内容不完整的锁文件刚创建时视为占用，超过一分钟视为残留并接管", async (t) => {
   const dir = await tempDir(t);
-  const file = join(dir, ".mi-recording-cli.lock");
+  const file = join(dir, ".micloud.lock");
   await writeFile(file, "");
-  await assert.rejects(() => lockOutputDir(dir), /正被另一个进程使用/);
+  await assert.rejects(() => lockOutputDir(dir), /正被另一个 micloud 进程使用/);
   const old = new Date(Date.now() - 120_000);
   await utimes(file, old, old);
   const release = await lockOutputDir(dir);
