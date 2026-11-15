@@ -115,4 +115,4 @@ API notes: [docs/recording-api.md](./docs/recording-api.md). Issues and suggesti
 
 ## License
 
-MIT
+[AGPL-3.0](./LICENSE). You may use, modify, and distribute it; if you distribute a modified version or offer it as a network service, you must release the source under the same license. Versions 0.4.0 and earlier remain MIT.

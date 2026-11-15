@@ -19,6 +19,7 @@ mi-note-cli 更名为 micloud（npm 包 `micloud-cli`），并加入小米云录
 - **破坏性**：项目配置改为 `.micloud/config.json`，按服务分节；同步状态文件改名为 `.micloud-note.state.json`；默认输出目录改为 `.micloud/note/`。旧的登录状态、配置、状态文件与默认目录会自动沿用
 - **破坏性**：环境变量改为 `MICLOUD_CONFIG_DIR`、`MICLOUD_INTEGRATION`
 - **破坏性**：`--json` 或无终端时删除笔记 / 文件夹必须带 `-y`，否则直接报错（以前会不经确认直接删除），与录音的删除一致
+- 开源协议由 MIT 改为 AGPL-3.0；0.4.0 及之前的版本仍为 MIT
 - 笔记请求增加 30 秒超时，只读请求遇网络错误、5xx 或非 JSON 响应时自动重试
 
 ### Fixed
