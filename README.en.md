@@ -54,7 +54,7 @@ Supported Markdown: headings, lists, checkboxes, quotes, dividers, bold / italic
 | Command | Description |
 |---|---|
 | `list` / `search` / `info <id>` / `stats` | List, search, details, statistics |
-| `pull -o <dir>` | Incremental pull: already-pulled recordings are skipped, even if you moved the files away |
+| `pull -o <dir>` | Incremental pull: already-pulled recordings are skipped, even if you moved the files away; `--limit n` pulls the newest n not-yet-pulled ones per run |
 | `download <id...>` | Download by id; `--stdout` to pipe |
 | `url <id>` / `play <id>` | Temporary direct link (no login needed, about 4 hours), play in a player |
 | `delete` | Move to trash: by id, by filter, or `--pulled` (pulled and verified locally) |

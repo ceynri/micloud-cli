@@ -22,6 +22,7 @@ micloud rec download <id> --stdout > a.mp3                            # 写到�
 micloud rec url <id...> --json                                        # 临时直链（免登录、约 4 小时有效，勿外传）
 ```
 
+- `--limit n` 是「本次只拉最新的 n 条**待拉取**的」：拉过的不计入，同一命令重复执行会继续往更早的录音走。只想要最新 n 条时只跑一次；`data.matched` 是符合筛选条件的总数，不是本次处理数，本次拉到的看 `data.pulled`。
 - `pull` 在拉取目录里记录拉过的录音，之后跳过，即使本地文件已被移走；要重新下载用 `--force` 或 `download <id>`。
 - 下载经大小与 SHA-1 校验、断点续传，绝不覆盖内容不同的已有文件（改存为 `<文件名>_<id>`）。同一目录同时只能运行一个 pull / download / delete --pulled。
 - `data.pulled[]` 每项含完整录音字段与 `file`（本地绝对路径），可直接交给转写等后续处理。
@@ -40,6 +41,7 @@ micloud rec trash restore <id...> --json                               # 恢复�
 micloud rec trash purge <id...> -y --json                              # 永久删除，或 --all，不可恢复
 ```
 
+- `--dry-run` 的候选清单在 `data.wouldDelete`（`data.deleted` 恒为空，真正执行后才填充）。
 - **删除会同步到手机**：云端删除的录音会从已登录该账号的设备上一并删除，删除前必须让用户知情。删除只进回收站，按会员等级保留 30~180 天。
 - 「删除已经拉到本地的录音」优先用 `delete --pulled` 或 `pull --delete-cloud`：只删拉取时校验过、云端未变、拉取目录里的文件仍完好的录音，每条删除前还会再核对一次。文件已被转移走的默认不删（`data.skipped` / `data.deleteSkipped` 里 `code: "local-missing"`），只有用户确认文件已妥善保存时才加 `--allow-moved`。
 - 被本工具删过又被恢复的录音视为有意保留（`code: "kept"`），不会再被自动删除。
