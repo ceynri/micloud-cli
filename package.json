@@ -1,6 +1,6 @@
 {
   "name": "micloud-cli",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "AI-friendly CLI for Xiaomi Cloud (i.mi.com): notes (read, write, sync to Markdown) and recordings (list, download, incremental pull, cleanup), with one login.",
   "type": "module",
   "bin": {

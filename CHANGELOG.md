@@ -4,7 +4,9 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循 [Semantic Versioning](https://semver.org/)。
 
-## [Unreleased] [[compare]](https://github.com/ceynri/micloud-cli/compare/v0.5.0...HEAD)
+## [Unreleased] [[compare]](https://github.com/ceynri/micloud-cli/compare/v0.5.1...HEAD)
+
+## [0.5.1] - 2026-11-15 [[compare]](https://github.com/ceynri/micloud-cli/compare/v0.5.0...v0.5.1)
 
 ### Changed
 
