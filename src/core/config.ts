@@ -42,13 +42,23 @@ export async function loadProjectConfig(): Promise<ProjectConfig> {
 
 /** 读取某个服务的配置节（原样返回，由服务自己校验字段）；笔记节缺失时回落到旧版配置 */
 export async function loadSection(service: ServiceName): Promise<Record<string, unknown>> {
+  return (await locateSection(service)).section;
+}
+
+/** 同 `loadSection`，同时返回配置实际来自哪个文件（回落到旧版配置时不是 `getConfigPath()`） */
+export async function locateSection(
+  service: ServiceName,
+): Promise<{ section: Record<string, unknown>; file: string }> {
   const section = (await loadProjectConfig())[service];
-  if (section && typeof section === "object" && !Array.isArray(section)) return section;
+  if (section && typeof section === "object" && !Array.isArray(section)) return { section, file: getConfigPath() };
   if (service === "note") {
-    const legacy = await readJson(join(getProjectRoot(), LEGACY_NOTE_CONFIG));
-    if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) return legacy as Record<string, unknown>;
+    const file = join(getProjectRoot(), LEGACY_NOTE_CONFIG);
+    const legacy = await readJson(file);
+    if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
+      return { section: legacy as Record<string, unknown>, file };
+    }
   }
-  return {};
+  return { section: {}, file: getConfigPath() };
 }
 
 /** 写回某个服务的配置节（其他服务的配置原样保留） */

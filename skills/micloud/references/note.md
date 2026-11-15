@@ -39,7 +39,7 @@ micloud note sync status --json                  # 配置与同步状态
 ```
 
 - `export` 不建状态文件、不删本地文件，适合备份快照；要持续同步用 `sync`。
-- 同步模式：`cloud-first` 只下行、`local-first` 只上行、`two-way` 双向自动、`manual`（默认）逐条询问。非交互下真冲突跳过并列在 `data.conflicts`，失败项在 `data.errors`，每次同步后都要检查并报告。
+- 同步模式：`cloud-first` 只下行、`local-first` 只上行、`two-way` 双向自动、`manual`（默认）逐条询问。非交互下真冲突跳过并列在 `data.conflicts`，失败项在 `data.errors`（无变更时也返回，为空数组），每次同步后都要检查并报告。
 - 同步删除云端笔记只移到回收站。本地新建文件的云端标题取文件名，子目录对应同名云端文件夹。
 - 同名笔记落盘时，除一条外其余文件名带 `_<id>` 后缀；按 id 定位笔记以 `get` 为准，不要凭文件名推断。
 

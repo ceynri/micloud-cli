@@ -416,6 +416,21 @@ export interface SyncResult {
   dryRun: boolean;
 }
 
+/** 各动作计数全为 0 */
+export function emptyApplied(): Record<SyncAction, number> {
+  return {
+    skip: 0,
+    "update-local": 0,
+    "update-remote": 0,
+    "create-local": 0,
+    "create-remote": 0,
+    "delete-local": 0,
+    "delete-remote": 0,
+    "drop-state": 0,
+    conflict: 0,
+  };
+}
+
 /** 冲突询问回调：返回针对该冲突要采取的具体动作（或 skip） */
 export type ConflictResolver = (
   item: SyncPlanItem,
@@ -635,17 +650,7 @@ export async function executeSyncPlan(
 ): Promise<SyncResult> {
   const { dryRun = false, quiet = false, resolveConflict } = opts;
   const fileNameTemplate = (await loadUserConfig()).fileNameTemplate;
-  const applied: Record<SyncAction, number> = {
-    skip: 0,
-    "update-local": 0,
-    "update-remote": 0,
-    "create-local": 0,
-    "create-remote": 0,
-    "delete-local": 0,
-    "delete-remote": 0,
-    "drop-state": 0,
-    conflict: 0,
-  };
+  const applied = emptyApplied();
   const conflicts: SyncPlanItem[] = [];
   const errors: SyncError[] = [];
 

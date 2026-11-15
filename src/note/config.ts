@@ -5,6 +5,7 @@ import {
   getDefaultOutputDir as coreDefaultOutputDir,
   getProjectRoot,
   loadSection,
+  locateSection,
   resolveOutputPath,
   saveSection,
 } from "../core/config.js";
@@ -79,6 +80,11 @@ export async function loadUserConfig(): Promise<UserConfig> {
   };
 }
 
+/** 笔记配置实际来自的文件（没有 note 节而回落到旧版配置时是旧文件） */
+export async function getEffectiveUserConfigPath(): Promise<string> {
+  return (await locateSection("note")).file;
+}
+
 /** 写入笔记配置（其他服务的配置原样保留）；旧版配置文件从此不再使用，提示可删除 */
 export async function saveUserConfig(cfg: UserConfig): Promise<void> {
   const section: Record<string, unknown> = {};
@@ -124,6 +130,14 @@ export async function loadState(outputDir: string): Promise<SyncState> {
   } catch {
     return emptyState();
   }
+}
+
+/** output 里是否只有旧版状态文件（需要在下次同步时迁移到新文件名） */
+export async function hasLegacyOnlyState(outputDir: string): Promise<boolean> {
+  return (
+    !(await fileExists(getStatePath(outputDir))) &&
+    (await fileExists(join(outputDir, LEGACY_STATE_FILENAME)))
+  );
 }
 
 /**

@@ -6,6 +6,15 @@
 
 ## [Unreleased] [[compare]](https://github.com/ceynri/micloud-cli/compare/v0.5.0...HEAD)
 
+### Changed
+
+- `note sync --json` 无变更时也返回完整结构（`total`、`applied`、`conflicts`、`errors`、`plan` 等），不再只有 `changes: 0`
+- `note sync status` 增加 `configFile`，显示配置实际来自的文件（含回落的旧版配置）
+
+### Fixed
+
+- 无变更的同步不再保留旧版 `.mi-note-cli.state.json`：首次以 micloud 同步即改存为 `.micloud-note.state.json`
+
 ## [0.5.0] - 2026-11-15 [[compare]](https://github.com/ceynri/micloud-cli/compare/v0.4.0...v0.5.0)
 
 mi-note-cli 更名为 micloud（npm 包 `micloud-cli`），并加入小米云录音。升级说明见 [MIGRATION.md](./MIGRATION.md)。

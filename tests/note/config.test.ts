@@ -13,6 +13,8 @@ import {
   saveUserConfig,
   loadState,
   saveState,
+  hasLegacyOnlyState,
+  getEffectiveUserConfigPath,
   resolveOutputDir,
   resolveSyncMode,
   setSyncMode,
@@ -151,6 +153,25 @@ test("兼容旧版：读取 .mi-note-cli.state.json；保存后改用新文件�
   await saveState(out, loaded);
   assert.ok(await fileExists(join(out, ".micloud-note.state.json")));
   assert.ok(!(await fileExists(join(out, ".mi-note-cli.state.json"))));
+});
+
+test("hasLegacyOnlyState：只有旧状态文件时为 true，保存后为 false", async () => {
+  const out = join(projectRoot, "legacy-out2");
+  await mkdir(out, { recursive: true });
+  assert.equal(await hasLegacyOnlyState(out), false);
+  await writeFile(join(out, ".mi-note-cli.state.json"), JSON.stringify({ lastSync: 1, notes: {}, folders: {} }), "utf-8");
+  assert.equal(await hasLegacyOnlyState(out), true);
+  await saveState(out, await loadState(out));
+  assert.equal(await hasLegacyOnlyState(out), false);
+});
+
+test("getEffectiveUserConfigPath：回落旧配置时指向旧文件，写入后指向新文件", async () => {
+  const legacy = join(projectRoot, ".mi-note-cli", "config.json");
+  await mkdir(join(projectRoot, ".mi-note-cli"), { recursive: true });
+  await writeFile(legacy, JSON.stringify({ syncMode: "two-way" }), "utf-8");
+  assert.equal(await getEffectiveUserConfigPath(), legacy);
+  await saveUserConfig({ syncMode: "two-way" });
+  assert.equal(await getEffectiveUserConfigPath(), getUserConfigPath());
 });
 
 // ============ SyncState 读写 ============

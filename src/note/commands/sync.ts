@@ -2,6 +2,7 @@ import { getClient } from "./shared.js";
 import {
   buildSyncPlan,
   executeSyncPlan,
+  emptyApplied,
   type SyncPlanItem,
 } from "../sync.js";
 import {
@@ -13,6 +14,8 @@ import {
   saveState,
   getUserConfigPath,
   getStatePath,
+  getEffectiveUserConfigPath,
+  hasLegacyOnlyState,
   ALL_MODES,
 } from "../config.js";
 import {
@@ -90,12 +93,12 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
     );
 
     if (plan.length === 0) {
-      // 首次同步认领了已有本地文件等情况：虽无动作，但基线需要落盘
-      if (stateChanged && !opts.dryRun) {
+      // 首次同步认领了已有本地文件、或旧版状态文件需改存新名字时：虽无动作，但状态需要落盘
+      if ((stateChanged || (await hasLegacyOnlyState(outputDir))) && !opts.dryRun) {
         state.lastSync = Date.now();
         await saveState(outputDir, state);
       }
-      success({ outputDir, mode, changes: 0 }, () => {
+      success(emptyResult(outputDir, mode, !!opts.dryRun), () => {
         logInfo("✅ 已是最新，无需同步");
       });
       return;
@@ -188,11 +191,12 @@ export async function syncInitCommand(): Promise<void> {
 export async function syncStatusCommand(opts: { output?: string }): Promise<void> {
   try {
     const config = await loadUserConfig();
+    const configFile = await getEffectiveUserConfigPath();
     const outputDir = await resolveOutputDir(opts.output);
     const state = await loadState(outputDir);
 
-    success({ config, outputDir, state }, () => {
-      logInfo(`配置文件：${getUserConfigPath()}`);
+    success({ configFile, config, outputDir, state }, () => {
+      logInfo(`配置文件：${configFile}`);
       logInfo(`同步模式：${config.syncMode ?? "manual（默认）"}`);
       if (config.output) logInfo(`默认目录：${config.output}`);
       if (config.fileNameTemplate) logInfo(`文件名模板：${config.fileNameTemplate}`);
@@ -212,6 +216,20 @@ export async function syncStatusCommand(opts: { output?: string }): Promise<void
 
 function describe(it: SyncPlanItem): string {
   return SCENARIO_DESC[it.scenario] ?? it.scenario;
+}
+
+/** 无需同步时的结果：结构与有变更时一致，调用方无需区分两种形态 */
+function emptyResult(outputDir: string, mode: SyncMode, dryRun: boolean) {
+  return {
+    total: 0,
+    applied: emptyApplied(),
+    conflicts: [],
+    errors: [],
+    outputDir,
+    mode,
+    dryRun,
+    plan: [],
+  };
 }
 
 function planSummary(plan: SyncPlanItem[]) {
